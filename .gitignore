@@ -1,0 +1,4 @@
+__pycache__/
+*.pyc
+.venv/
+covalt_model.pt
