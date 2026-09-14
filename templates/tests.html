@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#08090d">
+  <title>Covalt — Наши тесты</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="{{ url_for('static', filename='styles.css', v='covalt-text-1') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='tests.css', v='covalt-text-1') }}">
+</head>
+<body>
+  <div class="noise"></div>
+  <header class="topbar shell">
+    <a class="brand" href="/" aria-label="Covalt домой"><span class="brand-mark"><i></i><i></i><i></i></span><span>COVALT</span></a>
+    <div class="topbar-right"><a class="tests-link active-link" href="/tests">НАШИ ТЕСТЫ</a><span class="system-pill"><span class="status-dot"></span> TEXT CORE / TRANSPARENT</span><a class="back-link" href="/">← К студии</a></div>
+  </header>
+  <main>
+    <section class="tests-hero shell">
+      <div class="eyebrow"><span>02</span> TEXT CORE / PUBLIC CHECKS</div>
+      <h1>Наши<br><em>тесты.</em></h1>
+      <p>Здесь Covalt сам прогоняет понятные проверки и показывает результат без красивых обещаний. <b>PASS</b> — проверка прошла. <b>CHECK</b> — нужен разбор человеком.</p>
+      <div class="tests-identity"><span>NAME</span><b>{{ covalt_name }}</b><span>CREATOR</span><b>{{ creator_name }}</b><span>MODE</span><b>TEXT FIRST</b></div>
+    </section>
+    <section class="tests-board shell">
+      <div class="tests-toolbar"><div><span class="kicker">RUN / INSPECT / IMPROVE</span><h2>Проверки понимания</h2></div><button class="generate-button run-button" id="runTests"><span>Запустить тесты</span><b>↗</b></button></div>
+      <div class="test-summary" id="testSummary"><span class="summary-spinner"></span><span>Первый запуск проверок…</span></div>
+      <div class="test-list" id="testList"></div>
+      <div class="test-note" id="testNote"></div>
+    </section>
+  </main>
+  <footer class="shell footer"><span>© 2026 COVALT</span><span>RYNico corp. / HONEST AI WORKBENCH</span><a class="back-link" href="/">Вернуться в Covalt ↗</a></footer>
+  <script src="{{ url_for('static', filename='tests.js', v='covalt-text-1') }}"></script>
+</body>
+</html>

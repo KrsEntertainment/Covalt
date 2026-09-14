@@ -91,6 +91,10 @@
     image: 'Локальный Canvas · понимание промпта · PNG-рендер',
   };
   function setMode(mode) {
+    if (mode !== 'chat') {
+      toast('Режим видео/картинок временно выключен: сначала тестируем понимание текста.');
+      return;
+    }
     document.querySelectorAll('.mode-tab').forEach((button) => button.classList.toggle('active', button.dataset.mode === mode));
     $('#videoWorkspace').hidden = mode !== 'video';
     $('#progressCard').hidden = mode !== 'video' || !$('#progressCard').dataset.running;
@@ -291,6 +295,7 @@
     } catch (error) { button.disabled = false; toast(error.message); }
   });
 
+  setMode('chat');
   updateAdminUi();
   refreshVideos();
   loadNews();

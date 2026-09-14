@@ -17,6 +17,7 @@ from pathlib import Path
 from flask import Flask, abort, jsonify, render_template, request, send_from_directory, session
 
 from covalt_brain import COVALT_CREATOR, COVALT_NAME, chat as covalt_chat, generate_image as covalt_generate_image
+from covalt_tests import run_tests
 from video_generator import MAX_SECONDS, encode_video
 
 
@@ -226,6 +227,16 @@ def _run_generation(job_id: str, prompt: str, title: str, duration: float) -> No
             except OSError:
                 pass
         _set_job(job_id, status="error", progress=0, message=str(error))
+
+
+@app.get("/tests")
+def tests_page():
+    return render_template("tests.html", is_admin=_is_admin(), creator_name=COVALT_CREATOR, covalt_name=COVALT_NAME)
+
+
+@app.get("/api/tests")
+def tests_api():
+    return jsonify(run_tests())
 
 
 @app.get("/")

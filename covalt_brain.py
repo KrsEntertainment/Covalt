@@ -24,7 +24,7 @@ from typing import Any
 
 import numpy as np
 
-from video_generator import TinyMotionNetwork, parse_prompt, png_bytes, render_frame
+from video_generator import SCENE_WORDS, TinyMotionNetwork, parse_prompt, png_bytes, render_frame
 
 COVALT_NAME = "Covalt"
 COVALT_CREATOR = "RYNico corp."
@@ -124,30 +124,33 @@ def understand_prompt(prompt: str) -> dict[str, Any]:
     text = re.sub(r"\s+", " ", prompt.strip())
     lower = text.lower()
     scene = parse_prompt(text)
+    known_scene = any(word in lower for words, _ in SCENE_WORDS.values() for word in words.split())
     action_words = {
-        "летит": "flight", "лететь": "flight", "движется": "motion", "двигается": "motion",
+        "летит": "flight", "лететь": "flight", "движется": "motion", "движутся": "motion", "двигается": "motion",
         "вращается": "rotation", "вращаться": "rotation", "пульсирует": "pulse", "сияет": "glow",
         "waves": "motion", "вращается": "rotation", "flies": "flight", "moves": "motion",
         "spins": "rotation", "glows": "glow", "плывёт": "motion", "плывет": "motion",
     }
-    action = next((value for word, value in action_words.items() if word in lower), "motion")
+    action = next((value for word, value in action_words.items() if word in lower), "unspecified")
     moods = {
         "спокой": "calm", "мяг": "soft", "ярк": "bright", "неон": "neon", "ноч": "night",
         "тём": "dark", "темн": "dark", "warm": "warm", "calm": "calm", "neon": "neon",
     }
-    mood = next((value for word, value in moods.items() if word in lower), "cinematic")
+    mood = next((value for word, value in moods.items() if word in lower), "neutral")
     camera = "close-up" if any(word in lower for word in ("крупный план", "close-up", "портрет")) else "wide"
     language = "ru" if re.search(r"[а-яё]", lower) else "en"
+    recognized_scene = scene.kind if known_scene else "text"
+    recognized_palette = scene.palette if known_scene else "unspecified"
     return {
         "raw": text,
         "language": language,
-        "scene": scene.kind,
-        "palette": scene.palette,
+        "scene": recognized_scene,
+        "palette": recognized_palette,
         "action": action,
         "mood": mood,
         "camera": camera,
-        "entities": [scene.kind, scene.palette],
-        "confidence": 0.82 if scene.kind != "orb" or scene.palette != "violet" else 0.61,
+        "entities": [recognized_scene] if not known_scene else [scene.kind, scene.palette],
+        "confidence": 0.82 if known_scene else 0.58,
     }
 
 
@@ -174,21 +177,36 @@ def _remote_answer(messages: list[dict[str, str]]) -> str | None:
         return None
 
 
-def _local_answer(message: str, intent: dict[str, Any], results: list[SearchResult]) -> str:
+def _local_answer(message: str, intent: dict[str, Any], results: list[SearchResult], searched: bool = False) -> str:
     lower = message.lower()
     if any(word in lower for word in ("кто ты", "твоё имя", "твое имя", "как тебя зовут", "who are you", "your name")):
-        return f"Я {COVALT_NAME} — локальный AI-движок, созданный {COVALT_CREATOR}. Я умею разбирать промпты, собирать 2D-видео, изображения и искать свежую информацию в интернете."
+        return f"Я {COVALT_NAME} — локальный AI-движок, созданный компанией {COVALT_CREATOR} Могу вести текстовый диалог, уточнять идеи и честно отмечать, где мне нужен поиск."
     if any(word in lower for word in ("создатель", "кто тебя создал", "creator", "made you")):
-        return f"Мой создатель — {COVALT_CREATOR} Моё имя — {COVALT_NAME}."
+        return f"Мой создатель — {COVALT_CREATOR} Моё имя — {COVALT_NAME}. Сейчас мы тестируем именно моё понимание текста."
     if any(word in lower for word in ("что ты умеешь", "возможности", "what can you do")):
-        return "Я могу: разобрать идею по смыслу, собрать локальную 2D-сцену в MP4, сделать изображение, ответить в чате и найти актуальные источники в интернете, если включить поиск."
+        return "Сейчас основной режим — текст. Я могу вести диалог, разобрать смысл запроса, составить план, помочь переписать текст и искать актуальные источники. Режимы видео и изображений временно поставлены на паузу для тестирования понимания."
+    if any(word in lower for word in ("привет", "здравствуй", "добрый день", "hello", "hi")):
+        return "Привет. Я Covalt. Давай проверим именно текст: задай вопрос, попроси план, объяснение или редактуру. Если нужны свежие факты — включи поиск."
+    if any(word in lower for word in ("спасибо", "благодарю", "thanks")):
+        return "Пожалуйста. Если мой ответ неточный, напиши, что именно нужно исправить — это тоже тест."
     if results:
         return f"Я нашёл {len(results)} релевантных источника по запросу. Ниже оставил краткие выдержки и ссылки — проверьте дату публикации перед важными решениями."
-    return (
-        f"Я понял запрос как сцену «{intent['scene']}» с действием «{intent['action']}», "
-        f"настроением «{intent['mood']}» и палитрой «{intent['palette']}». "
-        "Можно попросить меня уточнить промпт, включить поиск или перейти в режим изображения/видео."
-    )
+    if searched:
+        return "Я включил поиск, но не получил источников. Возможно, сеть недоступна или поисковик временно не ответил. Я не буду выдумывать результат."
+    if any(word in lower for word in ("объясни", "что такое", "расскажи про", "explain", "what is")):
+        topic = re.sub(r"^(объясни|расскажи про|что такое|explain|what is)\s*", "", message, flags=re.IGNORECASE).strip(" ?") or "эту тему"
+        return f"Я понял, что нужно объяснить тему «{topic}». В локальном текстовом режиме у меня нет надёжной базы фактов, поэтому я не стану придумывать объяснение. Включи «Искать в интернете» — тогда я сначала соберу источники."
+    if any(word in lower for word in ("составь план", "сделай план", "план действий", "make a plan")):
+        topic = re.sub(r"(составь план|сделай план|план действий|make a plan)", "", message, flags=re.IGNORECASE).strip(" :") or "задачи"
+        return f"Для темы «{topic}» предлагаю начать так:\n1. Уточнить цель и критерий готовности.\n2. Разбить работу на маленькие шаги.\n3. Проверить результат на отдельном тесте.\n4. Зафиксировать, что нужно улучшить."
+    if any(word in lower for word in ("перепиши", "улучши текст", "исправь", "rewrite", "edit")):
+        source = message.split(":", 1)[1].strip() if ":" in message else message
+        return f"Я могу отредактировать этот текст. Сейчас вижу исходник: «{source[:220]}». Уточни желаемый тон — деловой, короткий, дружелюбный или рекламный."
+    if "?" in message or lower.startswith(("почему", "как ", "когда ", "где ", "зачем ", "можно ли")):
+        return "Я вижу вопрос, но пока не знаю на него проверенного ответа. Чтобы не выдумывать факты, включи поиск в интернете или добавь контекст, на который мне можно опереться."
+    if intent["scene"] != "text":
+        return f"Я понял текстовый запрос и выделил сцену «{intent['scene']}», действие «{intent['action']}», настроение «{intent['mood']}» и палитру «{intent['palette']}». Если это не то, уточни объект или цель словами."
+    return "Я прочитал сообщение, но пока не понял, какой текстовый результат нужен. Напиши действие: «объясни», «составь план», «перепиши», «сравни» или задай конкретный вопрос."
 
 
 def chat(message: str, history: list[dict[str, str]] | None = None, use_web: bool = False) -> dict[str, Any]:
@@ -211,7 +229,7 @@ def chat(message: str, history: list[dict[str, str]] | None = None, use_web: boo
             if item.get("role") in {"user", "assistant"} and item.get("content"):
                 messages.append({"role": item["role"], "content": str(item["content"])[:2000]})
     messages.append({"role": "user", "content": message})
-    answer = _remote_answer(messages) or _local_answer(message, intent, results)
+    answer = _remote_answer(messages) or _local_answer(message, intent, results, should_search)
     return {
         "answer": answer,
         "sources": [result.__dict__ for result in results],

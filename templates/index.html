@@ -8,8 +8,8 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="{{ url_for('static', filename='styles.css', v='covalt-ai-1') }}">
-  <link rel="stylesheet" href="{{ url_for('static', filename='ai.css', v='covalt-ai-1') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='styles.css', v='covalt-text-2') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='ai.css', v='covalt-text-2') }}">
 </head>
 <body>
   <div class="noise"></div>
@@ -19,6 +19,7 @@
       <span>COVALT</span>
     </a>
     <div class="topbar-right">
+      <a class="tests-link" href="/tests">НАШИ ТЕСТЫ ↗</a>
       <span class="system-pill"><span class="status-dot"></span> LOCAL NEURAL ENGINE</span>
       <button class="admin-button {% if is_admin %}active{% endif %}" id="adminButton" type="button">
         <span class="lock-icon">{% if is_admin %}✓{% else %}⌑{% endif %}</span>
@@ -30,13 +31,13 @@
   <main>
     <section class="hero shell">
       <div class="hero-copy">
-        <div class="eyebrow"><span>01</span> PROMPT TO MOTION / HELLO WORD</div>
-        <h1>Идея.<br><em>В движение.</em></h1>
+        <div class="eyebrow"><span>01</span> TEXT CORE / HELLO WORD</div>
+        <h1>Слово.<br><em>В смысл.</em></h1>
         <p class="hero-lead">Covalt — AI-студия от RYNico corp.: понимает промпт, создаёт 2D-видео и изображения, отвечает в чате и умеет искать свежие источники в интернете.</p>
         <div class="hero-notes">
-          <span><b>12</b> кадров / сек</span>
-          <span><b>300</b> сек максимум</span>
-          <span><b>MP4</b> H.264</span>
+          <span><b>TEXT</b> основной режим</span>
+          <span><b>WEB</b> поиск по запросу</span>
+          <span><b>TESTS</b> честная проверка</span>
         </div>
       </div>
       <div class="hero-orbit" aria-hidden="true">
@@ -53,13 +54,13 @@
         <span class="section-index">01 — 02</span>
       </div>
       <div class="mode-tabs" id="modeTabs" role="tablist" aria-label="Режимы Covalt">
-        <button class="mode-tab active" type="button" data-mode="video" role="tab"><span>01</span> Видео</button>
-        <button class="mode-tab" type="button" data-mode="chat" role="tab"><span>02</span> Чат</button>
-        <button class="mode-tab" type="button" data-mode="image" role="tab"><span>03</span> Картинки</button>
+        <button class="mode-tab paused" type="button" data-mode="video" role="tab" disabled><span>01</span> Видео <small>пауза</small></button>
+        <button class="mode-tab active" type="button" data-mode="chat" role="tab"><span>02</span> Чат</button>
+        <button class="mode-tab paused" type="button" data-mode="image" role="tab" disabled><span>03</span> Картинки <small>пауза</small></button>
         <span class="creator-badge">COVALT / RYNico corp.</span>
       </div>
-      <div class="mode-caption" id="modeCaption">Локальный генератор движения · обучаемая MLP · MP4 до 5 минут</div>
-      <div class="studio-grid" id="videoWorkspace">
+      <div class="mode-caption" id="modeCaption">Сейчас активен текстовый режим · видео и изображения временно на паузе</div>
+      <div class="studio-grid" id="videoWorkspace" hidden>
         <form class="prompt-card" id="generateForm">
           <div class="card-topline"><span class="led"></span><span>NEURAL PROMPT</span><span class="card-hint">без API · локально</span></div>
           <label for="prompt">Опишите, что должно происходить</label>
@@ -97,7 +98,7 @@
         <p id="progressDetail">Нейросеть готовит сцену. Для длинного ролика это может занять немного времени.</p>
       </div>
 
-      <div class="assistant-workspace" id="chatPanel" hidden>
+      <div class="assistant-workspace" id="chatPanel">
         <div class="chat-card">
           <div class="card-topline"><span class="led"></span><span>COVALT CHAT / MEMORY ON</span><span class="card-hint">{{ creator_name }}</span></div>
           <div class="chat-messages" id="chatMessages">
@@ -189,6 +190,6 @@
   </div>
   <div class="toast" id="toast" role="status"></div>
   <script>window.COVALT = {admin: {{ is_admin|tojson }}};</script>
-  <script src="{{ url_for('static', filename='app.js', v='covalt-ai-1') }}"></script>
+  <script src="{{ url_for('static', filename='app.js', v='covalt-text-2') }}"></script>
 </body>
 </html>
