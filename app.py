@@ -179,7 +179,13 @@ def login():
     password = str(payload.get("password", ""))
     if hmac.compare_digest(password, ADMIN_PASSWORD):
         session["admin"] = True
-        return jsonify({"ok": True, "admin": True})
+        # Return the queue together with the login response so the admin screen
+        # can render immediately, even when a preview browser has a stale page.
+        return jsonify({
+            "ok": True,
+            "admin": True,
+            "videos": [_public_item(item) for item in _visible_catalog()],
+        })
     return jsonify({"ok": False, "error": "Неверный пароль"}), 401
 
 

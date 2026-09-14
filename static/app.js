@@ -31,7 +31,7 @@
     toastTimer = setTimeout(() => toastNode.classList.remove('show'), 3600);
   };
   const api = async (url, options = {}) => {
-    const response = await fetch(url, { headers: { 'Content-Type': 'application/json', ...(options.headers || {}) }, ...options });
+    const response = await fetch(url, { credentials: 'include', headers: { 'Content-Type': 'application/json', ...(options.headers || {}) }, ...options });
     const data = await response.json().catch(() => ({}));
     if (!response.ok) throw new Error(data.error || 'Что-то пошло не так');
     return data;
@@ -139,8 +139,15 @@
     event.preventDefault();
     $('#loginError').textContent = '';
     try {
-      await api('/api/login', { method: 'POST', body: JSON.stringify({ password: $('#password').value }) });
-      state.admin = true; modal.hidden = true; $('#password').value = ''; updateAdminUi(); await refreshVideos(); toast('Режим администратора включён.');
+      const loginData = await api('/api/login', { method: 'POST', body: JSON.stringify({ password: $('#password').value }) });
+      state.admin = true;
+      modal.hidden = true;
+      $('#password').value = '';
+      // The login response already contains the newest queue. Render it now;
+      // do not wait for another request before showing the admin's drafts.
+      renderVideos(loginData.videos || []);
+      updateAdminUi();
+      toast('Режим администратора включён.');
     } catch (error) { $('#loginError').textContent = error.message; }
   });
   $('#logoutButton').addEventListener('click', async () => { try { await api('/api/logout', { method: 'POST' }); state.admin = false; updateAdminUi(); await refreshVideos(); toast('Вы вышли из режима администратора.'); } catch (error) { toast(error.message); } });
