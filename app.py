@@ -1,0 +1,282 @@
+"""Covalt web application: prompt -> neural 2D MP4 -> moderated library."""
+
+from __future__ import annotations
+
+import hmac
+import json
+import os
+import re
+import threading
+import uuid
+from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime, timezone
+from functools import wraps
+from pathlib import Path
+
+from flask import Flask, abort, jsonify, render_template, request, send_from_directory, session
+
+from video_generator import MAX_SECONDS, encode_video
+
+
+ROOT = Path(__file__).resolve().parent
+DATA_DIR = ROOT / "data"
+VIDEO_DIR = DATA_DIR / "videos"
+THUMB_DIR = DATA_DIR / "thumbs"
+CATALOG_PATH = DATA_DIR / "catalog.json"
+ADMIN_PASSWORD = os.environ.get("COVALT_ADMIN_PASSWORD", "9086")
+MAX_PROMPT_LENGTH = 400
+
+for directory in (DATA_DIR, VIDEO_DIR, THUMB_DIR):
+    directory.mkdir(parents=True, exist_ok=True)
+
+app = Flask(__name__, static_folder="static", template_folder="templates")
+app.secret_key = os.environ.get("COVALT_SECRET_KEY", "covalt-local-development-key-change-me")
+app.config["MAX_CONTENT_LENGTH"] = 1 * 1024 * 1024
+
+_catalog_lock = threading.RLock()
+_jobs_lock = threading.RLock()
+_jobs: dict[str, dict] = {}
+_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="covalt-render")
+
+
+def _read_catalog() -> list[dict]:
+    with _catalog_lock:
+        if not CATALOG_PATH.exists():
+            return []
+        try:
+            with CATALOG_PATH.open("r", encoding="utf-8") as handle:
+                value = json.load(handle)
+            return value if isinstance(value, list) else []
+        except (OSError, json.JSONDecodeError):
+            return []
+
+
+def _write_catalog(items: list[dict]) -> None:
+    with _catalog_lock:
+        temporary = CATALOG_PATH.with_suffix(".tmp")
+        with temporary.open("w", encoding="utf-8") as handle:
+            json.dump(items, handle, ensure_ascii=False, indent=2)
+        temporary.replace(CATALOG_PATH)
+
+
+def _is_admin() -> bool:
+    return bool(session.get("admin"))
+
+
+def _admin_required(function):
+    @wraps(function)
+    def wrapped(*args, **kwargs):
+        if not _is_admin():
+            return jsonify({"error": "Нужен вход администратора"}), 401
+        return function(*args, **kwargs)
+
+    return wrapped
+
+
+def _safe_title(title: str, prompt: str) -> str:
+    title = re.sub(r"\s+", " ", str(title or "")).strip()
+    return title[:90] or prompt[:70].strip() or "Новая сцена Covalt"
+
+
+def _find_video(video_id: str) -> dict | None:
+    return next((item for item in _read_catalog() if item.get("id") == video_id), None)
+
+
+def _public_item(item: dict) -> dict:
+    # Never expose server paths or internal job details to the browser.
+    return {
+        "id": item.get("id"),
+        "title": item.get("title"),
+        "prompt": item.get("prompt"),
+        "duration": item.get("duration"),
+        "created_at": item.get("created_at"),
+        "published": bool(item.get("published")),
+        "scene": item.get("scene"),
+        "palette": item.get("palette"),
+        "video_url": f"/media/{item.get('id')}" if item.get("filename") else None,
+        "download_url": f"/download/{item.get('id')}",
+        "thumbnail_url": f"/thumbs/{item.get('id')}" if item.get("thumbnail") else None,
+    }
+
+
+def _visible_catalog() -> list[dict]:
+    items = _read_catalog()
+    if not _is_admin():
+        items = [item for item in items if item.get("published")]
+    return sorted(items, key=lambda item: item.get("created_at", ""), reverse=True)
+
+
+def _set_job(job_id: str, **changes) -> None:
+    with _jobs_lock:
+        if job_id in _jobs:
+            _jobs[job_id].update(changes)
+
+
+def _run_generation(job_id: str, prompt: str, title: str, duration: float) -> None:
+    video_id = uuid.uuid4().hex[:12]
+    filename = f"{video_id}.mp4"
+    thumbnail = f"{video_id}.png"
+    video_path = VIDEO_DIR / filename
+    thumb_path = THUMB_DIR / thumbnail
+    _set_job(job_id, status="rendering", progress=0.02, message="Нейросеть строит движение…")
+    try:
+        details = encode_video(
+            prompt,
+            duration,
+            str(video_path),
+            str(thumb_path),
+            progress=lambda value: _set_job(job_id, progress=0.02 + value * 0.94, message="Собираем кадры и MP4…"),
+        )
+        now = datetime.now(timezone.utc).isoformat()
+        item = {
+            "id": video_id,
+            "title": title,
+            "prompt": prompt,
+            "duration": round(duration, 2),
+            "created_at": now,
+            "filename": filename,
+            "thumbnail": thumbnail,
+            "published": False,
+            **details,
+        }
+        with _catalog_lock:
+            catalog = _read_catalog()
+            catalog.append(item)
+            _write_catalog(catalog)
+        _set_job(job_id, status="done", progress=1.0, message="Видео готово. Администратор может опубликовать его.", video=_public_item(item))
+    except Exception as error:  # surface a friendly error in the UI, keep server alive
+        for path in (video_path, thumb_path):
+            try:
+                path.unlink(missing_ok=True)
+            except OSError:
+                pass
+        _set_job(job_id, status="error", progress=0, message=str(error))
+
+
+@app.get("/")
+def index():
+    return render_template("index.html", videos=[_public_item(item) for item in _visible_catalog()], is_admin=_is_admin())
+
+
+@app.get("/api/videos")
+def videos():
+    return jsonify({"videos": [_public_item(item) for item in _visible_catalog()], "admin": _is_admin()})
+
+
+@app.post("/api/login")
+def login():
+    payload = request.get_json(silent=True) or {}
+    password = str(payload.get("password", ""))
+    if hmac.compare_digest(password, ADMIN_PASSWORD):
+        session["admin"] = True
+        return jsonify({"ok": True, "admin": True})
+    return jsonify({"ok": False, "error": "Неверный пароль"}), 401
+
+
+@app.post("/api/logout")
+def logout():
+    session.pop("admin", None)
+    return jsonify({"ok": True})
+
+
+@app.post("/api/generate")
+def generate():
+    payload = request.get_json(silent=True) or {}
+    prompt = re.sub(r"\s+", " ", str(payload.get("prompt", ""))).strip()
+    if not prompt:
+        return jsonify({"error": "Напишите описание сцены"}), 400
+    if len(prompt) > MAX_PROMPT_LENGTH:
+        return jsonify({"error": f"Описание слишком длинное (максимум {MAX_PROMPT_LENGTH} символов)"}), 400
+    try:
+        duration = float(payload.get("duration", 8))
+    except (TypeError, ValueError):
+        return jsonify({"error": "Длительность должна быть числом"}), 400
+    if not 1 <= duration <= MAX_SECONDS:
+        return jsonify({"error": "Длительность должна быть от 1 до 300 секунд"}), 400
+    title = _safe_title(payload.get("title", ""), prompt)
+    job_id = uuid.uuid4().hex
+    with _jobs_lock:
+        _jobs[job_id] = {"id": job_id, "status": "queued", "progress": 0, "message": "Задача в очереди…"}
+    _executor.submit(_run_generation, job_id, prompt, title, duration)
+    return jsonify({"job_id": job_id})
+
+
+@app.get("/api/jobs/<job_id>")
+def job_status(job_id: str):
+    with _jobs_lock:
+        job = dict(_jobs.get(job_id, {}))
+    if not job:
+        return jsonify({"error": "Задача не найдена"}), 404
+    return jsonify(job)
+
+
+@app.post("/api/videos/<video_id>/publish")
+@_admin_required
+def publish(video_id: str):
+    with _catalog_lock:
+        catalog = _read_catalog()
+        item = next((item for item in catalog if item.get("id") == video_id), None)
+        if item is None:
+            return jsonify({"error": "Видео не найдено"}), 404
+        item["published"] = True
+        _write_catalog(catalog)
+    return jsonify({"ok": True, "video": _public_item(item)})
+
+
+@app.delete("/api/videos/<video_id>")
+@_admin_required
+def delete_video(video_id: str):
+    with _catalog_lock:
+        catalog = _read_catalog()
+        item = next((item for item in catalog if item.get("id") == video_id), None)
+        if item is None:
+            return jsonify({"error": "Видео не найдено"}), 404
+        _write_catalog([entry for entry in catalog if entry.get("id") != video_id])
+    for directory, filename in ((VIDEO_DIR, item.get("filename")), (THUMB_DIR, item.get("thumbnail"))):
+        if filename:
+            try:
+                (directory / filename).unlink(missing_ok=True)
+            except OSError:
+                pass
+    return jsonify({"ok": True})
+
+
+def _catalog_file(video_id: str, field: str, directory: Path):
+    item = _find_video(video_id)
+    if not item or (not item.get("published") and not _is_admin()):
+        abort(404)
+    filename = item.get(field)
+    if not filename or Path(filename).name != filename:
+        abort(404)
+    return send_from_directory(directory, filename, conditional=True)
+
+
+@app.get("/media/<video_id>")
+def media(video_id: str):
+    # The URL uses an id rather than accepting arbitrary filesystem paths.
+    item = _find_video(video_id)
+    if not item or (not item.get("published") and not _is_admin()):
+        abort(404)
+    return send_from_directory(VIDEO_DIR, item["filename"], conditional=True)
+
+
+@app.get("/download/<video_id>")
+def download(video_id: str):
+    item = _find_video(video_id)
+    if not item or (not item.get("published") and not _is_admin()):
+        abort(404)
+    return send_from_directory(VIDEO_DIR, item["filename"], as_attachment=True, download_name=f"{item.get('title', 'covalt-video')}.mp4", conditional=True)
+
+
+@app.get("/thumbs/<video_id>")
+def thumbs(video_id: str):
+    return _catalog_file(video_id, "thumbnail", THUMB_DIR)
+
+
+@app.get("/health")
+def health():
+    return jsonify({"ok": True, "service": "Covalt", "admin": _is_admin()})
+
+
+if __name__ == "__main__":
+    app.run(host=os.environ.get("COVALT_HOST", "0.0.0.0"), port=int(os.environ.get("PORT", "5000")), debug=False)
