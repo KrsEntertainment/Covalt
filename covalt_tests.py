@@ -105,8 +105,10 @@ def run_tests() -> dict:
 
     try:
         web = chat("Проверь свежие новости о Python", use_web=True)
-        actual = f"searched = {web['searched']}; источников: {len(web['sources'])}"
-        results.append(_result("web-switch", web["searched"] is True, actual, "Источники зависят от доступности интернета."))
+        source_count = len(web["sources"])
+        actual = f"searched = {web['searched']}; источников: {source_count}"
+        details = "Поиск включён, но сеть не вернула источники — это CHECK, а не выдуманный PASS." if source_count == 0 else "Источники получены."
+        results.append(_result("web-switch", web["searched"] is True and source_count > 0, actual, details))
     except Exception as error:
         results.append(_result("web-switch", False, "Ошибка", str(error)))
 
