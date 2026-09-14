@@ -37,23 +37,31 @@
     return data;
   };
 
+  function videoCard(video, reviewMode = false) {
+    const actions = reviewMode
+      ? `<button class="publish-button" data-action="publish" data-id="${escapeHtml(video.id)}">Опубликовать ↗</button><button class="delete-button" data-action="delete" data-id="${escapeHtml(video.id)}">Удалить</button>`
+      : `<a class="download-button" href="${escapeHtml(video.download_url)}">Скачать MP4 ↓</a>`;
+    return `<article class="video-card">
+      <div class="video-frame"><video controls preload="metadata" playsinline poster="${escapeHtml(video.thumbnail_url || '')}" src="${escapeHtml(video.video_url || '')}"></video></div>
+      <div class="video-info"><div class="video-top"><h3 class="video-title" title="${escapeHtml(video.title)}">${escapeHtml(video.title)}</h3><span class="video-duration">${formatDuration(video.duration)}</span></div>
+      <p class="video-prompt">${escapeHtml(video.prompt)}</p><div class="video-footer"><span class="video-date">${reviewMode ? '<span class="draft-badge">DRAFT</span>' : formatDate(video.created_at)}</span><span>${actions}</span></div></div>
+    </article>`;
+  }
+
   function renderVideos(videos) {
-    $('#libraryCount').textContent = `${videos.length} ${videos.length === 1 ? 'работа' : 'работ'}`;
-    if (!videos.length) {
-      videoGrid.innerHTML = '<div class="empty-state"><span class="empty-ring"></span><p>Здесь появятся опубликованные сцены.</p><small>Сгенерируйте первое видео выше.</small></div>';
-      return;
+    const published = videos.filter((video) => video.published);
+    const drafts = videos.filter((video) => !video.published);
+    $('#libraryCount').textContent = `${published.length} ${published.length === 1 ? 'работа' : 'работ'}`;
+    videoGrid.innerHTML = published.length
+      ? published.map((video) => videoCard(video)).join('')
+      : '<div class="empty-state"><span class="empty-ring"></span><p>Здесь появятся опубликованные сцены.</p><small>Сгенерируйте первое видео выше.</small></div>';
+
+    const review = $('#adminReview');
+    review.hidden = !state.admin;
+    if (state.admin) {
+      $('#reviewCount').textContent = `${drafts.length} ${drafts.length === 1 ? 'черновик' : 'черновиков'}`;
+      $('#reviewGrid').innerHTML = drafts.map((video) => videoCard(video, true)).join('');
     }
-    videoGrid.innerHTML = videos.map((video) => {
-      const draft = !video.published;
-      const actions = draft && state.admin
-        ? `<button class="publish-button" data-action="publish" data-id="${escapeHtml(video.id)}">Опубликовать ↗</button><button class="delete-button" data-action="delete" data-id="${escapeHtml(video.id)}">Удалить</button>`
-        : `<a class="download-button" href="${escapeHtml(video.download_url)}">Скачать MP4 ↓</a>`;
-      return `<article class="video-card">
-        <div class="video-frame"><video controls preload="metadata" playsinline poster="${escapeHtml(video.thumbnail_url || '')}" src="${escapeHtml(video.video_url || '')}"></video></div>
-        <div class="video-info"><div class="video-top"><h3 class="video-title" title="${escapeHtml(video.title)}">${escapeHtml(video.title)}</h3><span class="video-duration">${formatDuration(video.duration)}</span></div>
-        <p class="video-prompt">${escapeHtml(video.prompt)}</p><div class="video-footer"><span class="video-date">${draft ? '<span class="draft-badge">DRAFT</span>' : formatDate(video.created_at)}</span><span>${actions}</span></div></div>
-      </article>`;
-    }).join('');
   }
 
   async function refreshVideos() {
@@ -121,7 +129,7 @@
 
   const modal = $('#loginModal');
   $('#adminButton').addEventListener('click', () => {
-    if (state.admin) { document.querySelector('#library').scrollIntoView({ behavior: 'smooth' }); return; }
+    if (state.admin) { document.querySelector('#adminReview').scrollIntoView({ behavior: 'smooth' }); return; }
     modal.hidden = false; setTimeout(() => $('#password').focus(), 20);
   });
   $('#closeModal').addEventListener('click', () => { modal.hidden = true; });
@@ -137,9 +145,9 @@
   });
   $('#logoutButton').addEventListener('click', async () => { try { await api('/api/logout', { method: 'POST' }); state.admin = false; updateAdminUi(); await refreshVideos(); toast('Вы вышли из режима администратора.'); } catch (error) { toast(error.message); } });
 
-  videoGrid.addEventListener('click', async (event) => {
+  document.addEventListener('click', async (event) => {
     const button = event.target.closest('[data-action]');
-    if (!button) return;
+    if (!button || !button.closest('#reviewGrid')) return;
     const id = button.dataset.id;
     button.disabled = true;
     try {
