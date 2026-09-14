@@ -8,7 +8,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='styles.css', v='admin-review-2') }}">
 </head>
 <body>
   <div class="noise"></div>
@@ -90,13 +90,23 @@
       </div>
     </section>
 
-    <section class="admin-review shell" id="adminReview" hidden>
+    <section class="admin-review shell" id="adminReview" {% if not is_admin %}hidden{% endif %}>
       <div class="section-heading library-heading">
         <div><span class="kicker">PRIVATE QUEUE / ADMIN</span><h2>Недавние генерации</h2></div>
-        <span class="section-index" id="reviewCount">0 черновиков</span>
+        <span class="section-index" id="reviewCount">{{ draft_videos|length }} черновиков</span>
       </div>
       <p class="review-intro">Просмотрите готовые ролики ниже. Только после вашей кнопки «Опубликовать» видео появится в общей библиотеке.</p>
-      <div class="review-grid" id="reviewGrid"></div>
+      <div class="review-grid" id="reviewGrid">
+        {% if is_admin %}
+          {% for video in draft_videos %}
+          <article class="video-card">
+            <div class="video-frame"><video controls preload="metadata" playsinline poster="{{ video.thumbnail_url }}" src="{{ video.video_url }}"></video></div>
+            <div class="video-info"><div class="video-top"><h3 class="video-title" title="{{ video.title }}">{{ video.title }}</h3><span class="video-duration">{{ video.duration|round|int }} сек</span></div>
+            <p class="video-prompt">{{ video.prompt }}</p><div class="video-footer"><span class="video-date"><span class="draft-badge">DRAFT</span></span><span><button class="publish-button" data-action="publish" data-id="{{ video.id }}">Опубликовать ↗</button><button class="delete-button" data-action="delete" data-id="{{ video.id }}">Удалить</button></span></div></div>
+          </article>
+          {% endfor %}
+        {% endif %}
+      </div>
     </section>
 
     <section class="library shell" id="library">
@@ -125,6 +135,6 @@
   </div>
   <div class="toast" id="toast" role="status"></div>
   <script>window.COVALT = {admin: {{ is_admin|tojson }}};</script>
-  <script src="{{ url_for('static', filename='app.js') }}"></script>
+  <script src="{{ url_for('static', filename='app.js', v='admin-review-2') }}"></script>
 </body>
 </html>

@@ -31,6 +31,9 @@ for directory in (DATA_DIR, VIDEO_DIR, THUMB_DIR):
 
 app = Flask(__name__, static_folder="static", template_folder="templates")
 app.secret_key = os.environ.get("COVALT_SECRET_KEY", "covalt-local-development-key-change-me")
+# Static assets are versioned in the template too, so the studio updates without
+# requiring users to clear a cached JavaScript bundle after a deployment.
+app.config["SEND_FILE_MAX_AGE_DEFAULT"] = 0
 app.config["MAX_CONTENT_LENGTH"] = 1 * 1024 * 1024
 
 _catalog_lock = threading.RLock()
@@ -155,7 +158,14 @@ def _run_generation(job_id: str, prompt: str, title: str, duration: float) -> No
 
 @app.get("/")
 def index():
-    return render_template("index.html", videos=[_public_item(item) for item in _visible_catalog()], is_admin=_is_admin())
+    visible = [_public_item(item) for item in _visible_catalog()]
+    drafts = [item for item in visible if not item.get("published")]
+    return render_template(
+        "index.html",
+        videos=visible,
+        draft_videos=drafts,
+        is_admin=_is_admin(),
+    )
 
 
 @app.get("/api/videos")
