@@ -8,7 +8,8 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="{{ url_for('static', filename='styles.css', v='admin-review-4') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='styles.css', v='covalt-ai-1') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='ai.css', v='covalt-ai-1') }}">
 </head>
 <body>
   <div class="noise"></div>
@@ -31,7 +32,7 @@
       <div class="hero-copy">
         <div class="eyebrow"><span>01</span> PROMPT TO MOTION / HELLO WORD</div>
         <h1>Идея.<br><em>В движение.</em></h1>
-        <p class="hero-lead">Covalt превращает короткое описание в живую 2D-сцену. Локальная нейросеть обучает движение, а не просто сдвигает картинку.</p>
+        <p class="hero-lead">Covalt — AI-студия от RYNico corp.: понимает промпт, создаёт 2D-видео и изображения, отвечает в чате и умеет искать свежие источники в интернете.</p>
         <div class="hero-notes">
           <span><b>12</b> кадров / сек</span>
           <span><b>300</b> сек максимум</span>
@@ -51,7 +52,14 @@
         <div><span class="kicker">CREATE</span><h2>Соберите сцену</h2></div>
         <span class="section-index">01 — 02</span>
       </div>
-      <div class="studio-grid">
+      <div class="mode-tabs" id="modeTabs" role="tablist" aria-label="Режимы Covalt">
+        <button class="mode-tab active" type="button" data-mode="video" role="tab"><span>01</span> Видео</button>
+        <button class="mode-tab" type="button" data-mode="chat" role="tab"><span>02</span> Чат</button>
+        <button class="mode-tab" type="button" data-mode="image" role="tab"><span>03</span> Картинки</button>
+        <span class="creator-badge">COVALT / RYNico corp.</span>
+      </div>
+      <div class="mode-caption" id="modeCaption">Локальный генератор движения · обучаемая MLP · MP4 до 5 минут</div>
+      <div class="studio-grid" id="videoWorkspace">
         <form class="prompt-card" id="generateForm">
           <div class="card-topline"><span class="led"></span><span>NEURAL PROMPT</span><span class="card-hint">без API · локально</span></div>
           <label for="prompt">Опишите, что должно происходить</label>
@@ -88,6 +96,35 @@
         <div class="progress-track"><div class="progress-bar" id="progressBar"></div></div>
         <p id="progressDetail">Нейросеть готовит сцену. Для длинного ролика это может занять немного времени.</p>
       </div>
+
+      <div class="assistant-workspace" id="chatPanel" hidden>
+        <div class="chat-card">
+          <div class="card-topline"><span class="led"></span><span>COVALT CHAT / MEMORY ON</span><span class="card-hint">{{ creator_name }}</span></div>
+          <div class="chat-messages" id="chatMessages">
+            <div class="chat-message assistant-message"><span class="message-avatar">C</span><div><b>Covalt</b><p>Привет. Я Covalt, созданный RYNico corp. Опиши идею, попроси разобрать промпт или включи поиск по интернету.</p></div></div>
+          </div>
+          <form class="chat-form" id="chatForm">
+            <textarea id="chatInput" maxlength="4000" rows="2" placeholder="Спроси Covalt о чём-нибудь…" required></textarea>
+            <div class="chat-actions"><label class="search-toggle"><input id="chatWeb" type="checkbox"><span class="toggle-track"></span> Искать в интернете</label><button class="generate-button chat-send" type="submit"><span>Отправить</span><b>↗</b></button></div>
+          </form>
+        </div>
+        <aside class="memory-card">
+          <div class="card-topline"><span class="led amber"></span><span>IDENTITY CORE</span></div>
+          <div class="identity-orb">C</div><h3>Covalt</h3><p>Создатель: <strong>RYNico corp.</strong></p><p class="memory-copy">Встроенная память знает имя, создателя и умеет выделять сцену, действие, палитру, настроение и камеру из запроса.</p>
+          <div class="engine-meta"><span>LOCAL CONTEXT</span><span>WEB OPTIONAL</span></div>
+        </aside>
+      </div>
+
+      <div class="image-workspace" id="imagePanel" hidden>
+        <form class="prompt-card image-prompt-card" id="imageForm">
+          <div class="card-topline"><span class="led amber"></span><span>COVALT CANVAS</span><span class="card-hint">PNG · LOCAL RENDER</span></div>
+          <label for="imagePrompt">Опишите изображение</label>
+          <textarea id="imagePrompt" maxlength="400" placeholder="Например: розовая звезда светится в глубоком космосе" required>Розовая звезда светится в глубоком космосе</textarea>
+          <div class="understanding-line" id="imageUnderstanding">Covalt разберёт сцену перед рендером.</div>
+          <button class="generate-button" id="imageButton" type="submit"><span>Создать изображение</span><b>↗</b></button>
+        </form>
+        <div class="image-result" id="imageResult"><div class="empty-state"><span class="empty-ring"></span><p>Здесь появится результат.</p><small>Изображение строится локальным Covalt renderer.</small></div></div>
+      </div>
     </section>
 
     <section class="admin-review shell" id="adminReview" {% if not is_admin %}hidden{% endif %}>
@@ -121,6 +158,23 @@
         <div class="empty-state"><span class="empty-ring"></span><p>Здесь появятся опубликованные сцены.</p><small>Сгенерируйте первое видео выше.</small></div>
       </div>
     </section>
+
+    <section class="news-section shell" id="news">
+      <div class="section-heading library-heading">
+        <div><span class="kicker">FIELD NOTES / COVALT</span><h2>Новости проекта</h2></div>
+        <span class="section-index">03 — 03</span>
+      </div>
+      <div class="news-grid" id="newsGrid"></div>
+      <section class="news-editor" id="newsEditor" hidden>
+        <div class="editor-heading"><div><span class="kicker">ADMIN PUBLISHING</span><h3>Редактор новостей</h3></div><button class="refresh-button" id="newNewsButton" type="button">+ Новая новость</button></div>
+        <form id="newsForm" class="news-form">
+          <input id="newsId" type="hidden"><label>ЗАГОЛОВОК<input id="newsTitle" maxlength="120" placeholder="Например, Covalt получил режим поиска" required></label>
+          <label>ТЕКСТ<textarea id="newsBody" maxlength="5000" rows="4" placeholder="Расскажите, что изменилось…" required></textarea></label>
+          <div class="news-form-actions"><label class="publish-toggle"><input id="newsPublished" type="checkbox" checked><span>Опубликовать сразу</span></label><span id="newsFormStatus"></span><button class="generate-button" type="submit"><span id="newsSubmitLabel">Опубликовать новость</span><b>↗</b></button></div>
+        </form>
+        <div class="admin-news-list" id="adminNewsList"></div>
+      </section>
+    </section>
   </main>
 
   <footer class="shell footer"><span>© 2026 COVALT</span><span>HELLO WORD / SIMPLE THINGS IN MOTION</span><span>MADE LOCALLY</span></footer>
@@ -135,6 +189,6 @@
   </div>
   <div class="toast" id="toast" role="status"></div>
   <script>window.COVALT = {admin: {{ is_admin|tojson }}};</script>
-  <script src="{{ url_for('static', filename='app.js', v='admin-review-4') }}"></script>
+  <script src="{{ url_for('static', filename='app.js', v='covalt-ai-1') }}"></script>
 </body>
 </html>

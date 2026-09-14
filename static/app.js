@@ -12,6 +12,8 @@
   const durationValue = $('#durationValue');
   const videoGrid = $('#videoGrid');
   const toastNode = $('#toast');
+  const chatMessages = $('#chatMessages');
+  const chatHistory = [];
 
   const escapeHtml = (value) => String(value ?? '').replace(/[&<>'"]/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' }[char]));
   const formatDuration = (seconds) => {
@@ -80,6 +82,84 @@
     $('#adminButton').classList.toggle('active', state.admin);
     $('#adminButton .lock-icon').textContent = state.admin ? '✓' : '⌑';
     $('#adminBanner').hidden = !state.admin;
+    $('#newsEditor').hidden = !state.admin;
+  }
+
+  const modeCaptions = {
+    video: 'Локальный генератор движения · обучаемая MLP · MP4 до 5 минут',
+    chat: 'Память Covalt · разбор смысла · опциональный поиск по интернету',
+    image: 'Локальный Canvas · понимание промпта · PNG-рендер',
+  };
+  function setMode(mode) {
+    document.querySelectorAll('.mode-tab').forEach((button) => button.classList.toggle('active', button.dataset.mode === mode));
+    $('#videoWorkspace').hidden = mode !== 'video';
+    $('#progressCard').hidden = mode !== 'video' || !$('#progressCard').dataset.running;
+    $('#chatPanel').hidden = mode !== 'chat';
+    $('#imagePanel').hidden = mode !== 'image';
+    $('#modeCaption').textContent = modeCaptions[mode] || modeCaptions.video;
+  }
+  document.querySelectorAll('.mode-tab').forEach((button) => button.addEventListener('click', () => setMode(button.dataset.mode)));
+
+  function appendChatMessage(role, content, sources = [], understanding = null) {
+    const isAssistant = role === 'assistant';
+    const sourceHtml = sources.length ? `<div class="source-list">${sources.map((source) => `<a href="${escapeHtml(source.url)}" target="_blank" rel="noopener"><b>${escapeHtml(source.title)}</b><small>${escapeHtml(source.snippet || source.url)}</small></a>`).join('')}</div>` : '';
+    const intentHtml = understanding ? `<div class="intent-chips"><span>${escapeHtml(understanding.scene)}</span><span>${escapeHtml(understanding.action)}</span><span>${escapeHtml(understanding.palette)}</span><span>${Math.round((understanding.confidence || 0) * 100)}% match</span></div>` : '';
+    const node = document.createElement('div');
+    node.className = `chat-message ${isAssistant ? 'assistant-message' : 'user-message'}`;
+    node.innerHTML = isAssistant
+      ? `<span class="message-avatar">C</span><div><b>Covalt</b><p>${escapeHtml(content).replace(/\n/g, '<br>')}</p>${intentHtml}${sourceHtml}</div>`
+      : `<div><b>Вы</b><p>${escapeHtml(content).replace(/\n/g, '<br>')}</p></div>`;
+    chatMessages.appendChild(node);
+    chatMessages.scrollTop = chatMessages.scrollHeight;
+  }
+
+  $('#chatForm').addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const input = $('#chatInput');
+    const message = input.value.trim();
+    if (!message) return;
+    const useWeb = $('#chatWeb').checked;
+    appendChatMessage('user', message);
+    chatHistory.push({ role: 'user', content: message });
+    input.value = '';
+    const button = event.submitter || event.target.querySelector('button');
+    button.disabled = true;
+    button.querySelector('span').textContent = 'Думаю…';
+    try {
+      const result = await api('/api/chat', { method: 'POST', body: JSON.stringify({ message, history: chatHistory.slice(-8), use_web: useWeb }) });
+      appendChatMessage('assistant', result.answer, result.sources || [], result.understanding);
+      chatHistory.push({ role: 'assistant', content: result.answer });
+    } catch (error) { appendChatMessage('assistant', `Не получилось выполнить запрос: ${error.message}`); }
+    button.disabled = false;
+    button.querySelector('span').textContent = 'Отправить';
+  });
+
+  $('#imageForm').addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const button = $('#imageButton');
+    button.disabled = true;
+    button.querySelector('span').textContent = 'Рендерим…';
+    try {
+      const result = await api('/api/image', { method: 'POST', body: JSON.stringify({ prompt: $('#imagePrompt').value }) });
+      const intent = result.understanding || {};
+      $('#imageUnderstanding').textContent = `Covalt понял: ${intent.scene || 'scene'} · ${intent.action || 'motion'} · ${intent.palette || 'palette'} · ${Math.round((intent.confidence || 0) * 100)}% match`;
+      $('#imageResult').innerHTML = `<div class="generated-image"><img src="${escapeHtml(result.url)}" alt="${escapeHtml(result.prompt)}"><div class="image-result-footer"><span>${escapeHtml(result.scene)} / ${escapeHtml(result.palette || '')}</span><a class="download-button" href="${escapeHtml(result.url)}" download="covalt-${escapeHtml(result.id)}.png">Скачать PNG ↓</a></div></div>`;
+      toast('Изображение Covalt готово.');
+    } catch (error) { toast(error.message); }
+    button.disabled = false;
+    button.querySelector('span').textContent = 'Создать изображение';
+  });
+
+  async function loadNews() {
+    try {
+      const data = await api('/api/news');
+      const items = data.news || [];
+      $('#newsGrid').innerHTML = items.length ? items.map((item) => `<article class="news-card"><div class="news-card-top"><span class="news-number">${String(items.indexOf(item) + 1).padStart(2, '0')}</span><span>${formatDate(item.updated_at || item.created_at)}</span></div><h3>${escapeHtml(item.title)}</h3><p>${escapeHtml(item.body).replace(/\n/g, '<br>')}</p>${state.admin && !item.published ? '<span class="draft-badge">DRAFT</span>' : ''}</article>`).join('') : '<div class="news-empty">Новости появятся здесь, когда команда Covalt опубликует первый апдейт.</div>';
+      if (state.admin) {
+        $('#adminNewsList').innerHTML = items.length ? items.map((item) => `<div class="admin-news-row"><div><b>${escapeHtml(item.title)}</b><small>${item.published ? 'Опубликовано' : 'Черновик'} · ${formatDate(item.updated_at || item.created_at)}</small></div><span><button class="publish-button" data-news-action="edit" data-news-id="${escapeHtml(item.id)}">Изменить</button><button class="delete-button" data-news-action="delete" data-news-id="${escapeHtml(item.id)}">Удалить</button></span></div>`).join('') : '<small class="news-empty">Список новостей пуст.</small>';
+        $('#adminNewsList').dataset.items = JSON.stringify(items);
+      }
+    } catch (error) { toast(error.message); }
   }
 
   duration.addEventListener('input', () => { durationValue.textContent = duration.value; });
@@ -95,6 +175,7 @@
       progressMessage.textContent = job.message || 'Работаем…';
       if (job.status === 'done') {
         progressDetail.textContent = 'Готово. Ролик сохранён как MP4.';
+        delete progressCard.dataset.running;
         generateButton.disabled = false;
         generateButton.querySelector('span').textContent = 'Сгенерировать ещё';
         if (state.admin) toast('Видео готово — оно ждёт публикации.'); else toast('Видео готово — войдите как админ, чтобы его опубликовать.');
@@ -107,6 +188,7 @@
     } catch (error) {
       clearTimeout(state.polling);
       progressCard.hidden = true;
+      delete progressCard.dataset.running;
       generateButton.disabled = false;
       generateButton.querySelector('span').textContent = 'Сгенерировать видео';
       toast(error.message);
@@ -118,6 +200,7 @@
     generateButton.disabled = true;
     generateButton.querySelector('span').textContent = 'Генерация…';
     progressCard.hidden = false;
+    progressCard.dataset.running = '1';
     progressBar.style.width = '0%'; progressPercent.textContent = '0%';
     progressMessage.textContent = 'Запускаем движок…';
     progressDetail.textContent = 'Нейросеть готовит сцену. Для длинного ролика это может занять немного времени.';
@@ -150,12 +233,53 @@
       // do not wait for another request before showing the admin's drafts.
       renderVideos(loginData.videos || []);
       updateAdminUi();
+      await loadNews();
       toast('Режим администратора включён.');
     } catch (error) { $('#loginError').textContent = error.message; }
   });
-  $('#logoutButton').addEventListener('click', async () => { try { await api('/api/logout', { method: 'POST' }); state.admin = false; state.adminToken = null; updateAdminUi(); await refreshVideos(); toast('Вы вышли из режима администратора.'); } catch (error) { toast(error.message); } });
+  $('#logoutButton').addEventListener('click', async () => { try { await api('/api/logout', { method: 'POST' }); state.admin = false; state.adminToken = null; updateAdminUi(); await refreshVideos(); await loadNews(); toast('Вы вышли из режима администратора.'); } catch (error) { toast(error.message); } });
+
+  $('#newNewsButton').addEventListener('click', () => {
+    $('#newsId').value = '';
+    $('#newsTitle').value = '';
+    $('#newsBody').value = '';
+    $('#newsPublished').checked = true;
+    $('#newsSubmitLabel').textContent = 'Опубликовать новость';
+    $('#newsTitle').focus();
+  });
+
+  $('#newsForm').addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const id = $('#newsId').value.trim();
+    const payload = { title: $('#newsTitle').value, body: $('#newsBody').value, published: $('#newsPublished').checked };
+    try {
+      await api(id ? `/api/news/${encodeURIComponent(id)}` : '/api/news', { method: id ? 'PUT' : 'POST', body: JSON.stringify(payload) });
+      $('#newsFormStatus').textContent = 'Сохранено';
+      toast(id ? 'Новость обновлена.' : 'Новость опубликована.');
+      await loadNews();
+      setTimeout(() => { $('#newsFormStatus').textContent = ''; }, 2000);
+    } catch (error) { $('#newsFormStatus').textContent = error.message; }
+  });
 
   document.addEventListener('click', async (event) => {
+    const newsButton = event.target.closest('[data-news-action]');
+    if (newsButton) {
+      const items = JSON.parse($('#adminNewsList').dataset.items || '[]');
+      const item = items.find((entry) => entry.id === newsButton.dataset.newsId);
+      if (!item) return;
+      if (newsButton.dataset.newsAction === 'edit') {
+        $('#newsId').value = item.id;
+        $('#newsTitle').value = item.title;
+        $('#newsBody').value = item.body;
+        $('#newsPublished').checked = Boolean(item.published);
+        $('#newsSubmitLabel').textContent = 'Сохранить изменения';
+        $('#newsTitle').focus();
+      } else if (newsButton.dataset.newsAction === 'delete' && window.confirm('Удалить эту новость?')) {
+        try { await api(`/api/news/${encodeURIComponent(item.id)}`, { method: 'DELETE' }); toast('Новость удалена.'); await loadNews(); }
+        catch (error) { toast(error.message); }
+      }
+      return;
+    }
     const button = event.target.closest('[data-action]');
     if (!button || !button.closest('#reviewGrid')) return;
     const id = button.dataset.id;
@@ -169,4 +293,5 @@
 
   updateAdminUi();
   refreshVideos();
+  loadNews();
 })();

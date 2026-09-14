@@ -5,5 +5,8 @@ covalt_model.pt
 data/catalog.json
 data/videos/*
 data/thumbs/*
+data/images/*
+data/news.json
 !data/videos/.gitkeep
 !data/thumbs/.gitkeep
+!data/images/.gitkeep

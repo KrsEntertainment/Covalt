@@ -16,6 +16,7 @@ from pathlib import Path
 
 from flask import Flask, abort, jsonify, render_template, request, send_from_directory, session
 
+from covalt_brain import COVALT_CREATOR, COVALT_NAME, chat as covalt_chat, generate_image as covalt_generate_image
 from video_generator import MAX_SECONDS, encode_video
 
 
@@ -23,11 +24,13 @@ ROOT = Path(__file__).resolve().parent
 DATA_DIR = ROOT / "data"
 VIDEO_DIR = DATA_DIR / "videos"
 THUMB_DIR = DATA_DIR / "thumbs"
+IMAGE_DIR = DATA_DIR / "images"
 CATALOG_PATH = DATA_DIR / "catalog.json"
+NEWS_PATH = DATA_DIR / "news.json"
 ADMIN_PASSWORD = os.environ.get("COVALT_ADMIN_PASSWORD", "9086")
 MAX_PROMPT_LENGTH = 400
 
-for directory in (DATA_DIR, VIDEO_DIR, THUMB_DIR):
+for directory in (DATA_DIR, VIDEO_DIR, THUMB_DIR, IMAGE_DIR):
     directory.mkdir(parents=True, exist_ok=True)
 
 app = Flask(__name__, static_folder="static", template_folder="templates")
@@ -61,6 +64,44 @@ def _write_catalog(items: list[dict]) -> None:
         with temporary.open("w", encoding="utf-8") as handle:
             json.dump(items, handle, ensure_ascii=False, indent=2)
         temporary.replace(CATALOG_PATH)
+
+
+def _read_news() -> list[dict]:
+    with _catalog_lock:
+        if not NEWS_PATH.exists():
+            return []
+        try:
+            with NEWS_PATH.open("r", encoding="utf-8") as handle:
+                value = json.load(handle)
+            return value if isinstance(value, list) else []
+        except (OSError, json.JSONDecodeError):
+            return []
+
+
+def _write_news(items: list[dict]) -> None:
+    with _catalog_lock:
+        temporary = NEWS_PATH.with_suffix(".tmp")
+        with temporary.open("w", encoding="utf-8") as handle:
+            json.dump(items, handle, ensure_ascii=False, indent=2)
+        temporary.replace(NEWS_PATH)
+
+
+def _public_news(item: dict) -> dict:
+    return {
+        "id": item.get("id"),
+        "title": item.get("title", ""),
+        "body": item.get("body", ""),
+        "created_at": item.get("created_at"),
+        "updated_at": item.get("updated_at"),
+        "published": bool(item.get("published")),
+    }
+
+
+def _visible_news() -> list[dict]:
+    items = _read_news()
+    if not _is_admin():
+        items = [item for item in items if item.get("published")]
+    return sorted(items, key=lambda item: item.get("updated_at") or item.get("created_at", ""), reverse=True)
 
 
 def _signed_token(value: str) -> str:
@@ -195,6 +236,9 @@ def index():
         "index.html",
         videos=visible,
         draft_videos=drafts,
+        news=[_public_news(item) for item in _visible_news()],
+        creator_name=COVALT_CREATOR,
+        covalt_name=COVALT_NAME,
         is_admin=_is_admin(),
     )
 
@@ -202,6 +246,104 @@ def index():
 @app.get("/api/videos")
 def videos():
     return jsonify({"videos": [_public_item(item) for item in _visible_catalog()], "admin": _is_admin()})
+
+
+@app.get("/api/news")
+def news_list():
+    return jsonify({"news": [_public_news(item) for item in _visible_news()], "admin": _is_admin()})
+
+
+@app.post("/api/news")
+@_admin_required
+def create_news():
+    payload = request.get_json(silent=True) or {}
+    title = re.sub(r"\s+", " ", str(payload.get("title", ""))).strip()
+    body = str(payload.get("body", "")).strip()
+    if not title or not body:
+        return jsonify({"error": "Укажите заголовок и текст новости"}), 400
+    if len(title) > 120 or len(body) > 5000:
+        return jsonify({"error": "Заголовок или текст новости слишком длинные"}), 400
+    now = datetime.now(timezone.utc).isoformat()
+    item = {
+        "id": uuid.uuid4().hex[:12],
+        "title": title,
+        "body": body,
+        "created_at": now,
+        "updated_at": now,
+        "published": bool(payload.get("published", True)),
+    }
+    with _catalog_lock:
+        items = _read_news()
+        items.append(item)
+        _write_news(items)
+    return jsonify({"ok": True, "news": _public_news(item)})
+
+
+@app.put("/api/news/<news_id>")
+@_admin_required
+def update_news(news_id: str):
+    payload = request.get_json(silent=True) or {}
+    title = re.sub(r"\s+", " ", str(payload.get("title", ""))).strip()
+    body = str(payload.get("body", "")).strip()
+    if not title or not body:
+        return jsonify({"error": "Укажите заголовок и текст новости"}), 400
+    with _catalog_lock:
+        items = _read_news()
+        item = next((entry for entry in items if entry.get("id") == news_id), None)
+        if item is None:
+            return jsonify({"error": "Новость не найдена"}), 404
+        item.update({
+            "title": title[:120],
+            "body": body[:5000],
+            "published": bool(payload.get("published", item.get("published", True))),
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+        })
+        _write_news(items)
+    return jsonify({"ok": True, "news": _public_news(item)})
+
+
+@app.delete("/api/news/<news_id>")
+@_admin_required
+def delete_news(news_id: str):
+    with _catalog_lock:
+        items = _read_news()
+        if not any(entry.get("id") == news_id for entry in items):
+            return jsonify({"error": "Новость не найдена"}), 404
+        _write_news([entry for entry in items if entry.get("id") != news_id])
+    return jsonify({"ok": True})
+
+
+@app.post("/api/chat")
+def chat_api():
+    payload = request.get_json(silent=True) or {}
+    try:
+        result = covalt_chat(payload.get("message", ""), payload.get("history", []), bool(payload.get("use_web")))
+    except ValueError as error:
+        return jsonify({"error": str(error)}), 400
+    except Exception:
+        return jsonify({"error": "Covalt не смог обработать запрос. Попробуйте ещё раз."}), 502
+    return jsonify(result)
+
+
+@app.post("/api/prompt/understand")
+def prompt_understanding():
+    from covalt_brain import understand_prompt
+    payload = request.get_json(silent=True) or {}
+    return jsonify(understand_prompt(str(payload.get("prompt", ""))))
+
+
+@app.post("/api/image")
+def image_generate():
+    payload = request.get_json(silent=True) or {}
+    prompt = re.sub(r"\s+", " ", str(payload.get("prompt", ""))).strip()
+    if not prompt:
+        return jsonify({"error": "Опишите изображение"}), 400
+    if len(prompt) > MAX_PROMPT_LENGTH:
+        return jsonify({"error": f"Описание слишком длинное (максимум {MAX_PROMPT_LENGTH} символов)"}), 400
+    try:
+        return jsonify(covalt_generate_image(prompt, IMAGE_DIR))
+    except Exception as error:
+        return jsonify({"error": f"Не удалось создать изображение: {error}"}), 500
 
 
 @app.post("/api/login")
@@ -321,9 +463,16 @@ def thumbs(video_id: str):
     return _catalog_file(video_id, "thumbnail", THUMB_DIR)
 
 
+@app.get("/generated-images/<filename>")
+def generated_image(filename: str):
+    if Path(filename).name != filename or not filename.endswith(".png"):
+        abort(404)
+    return send_from_directory(IMAGE_DIR, filename, conditional=True)
+
+
 @app.get("/health")
 def health():
-    return jsonify({"ok": True, "service": "Covalt", "admin": _is_admin()})
+    return jsonify({"ok": True, "service": COVALT_NAME, "creator": COVALT_CREATOR, "admin": _is_admin()})
 
 
 if __name__ == "__main__":
