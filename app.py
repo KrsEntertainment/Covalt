@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import hmac
 import json
 import os
@@ -62,14 +63,40 @@ def _write_catalog(items: list[dict]) -> None:
         temporary.replace(CATALOG_PATH)
 
 
+def _signed_token(value: str) -> str:
+    secret = str(app.secret_key).encode("utf-8")
+    return hmac.new(secret, value.encode("utf-8"), hashlib.sha256).hexdigest()
+
+
+def _admin_token() -> str:
+    # This token is returned only after the password is accepted. It makes the
+    # preview resilient in iframe/proxy environments that do not retain a
+    # Flask cookie, while the normal session remains the primary auth method.
+    return _signed_token("covalt-admin")
+
+
+def _has_admin_access() -> bool:
+    supplied = request.headers.get("X-Covalt-Admin", "")
+    return bool(session.get("admin")) or hmac.compare_digest(supplied, _admin_token())
+
+
 def _is_admin() -> bool:
-    return bool(session.get("admin"))
+    return _has_admin_access()
+
+
+def _preview_token(video_id: str) -> str:
+    return _signed_token(f"covalt-preview:{video_id}")
+
+
+def _has_preview_access(video_id: str) -> bool:
+    supplied = request.args.get("preview", "")
+    return hmac.compare_digest(supplied, _preview_token(video_id))
 
 
 def _admin_required(function):
     @wraps(function)
     def wrapped(*args, **kwargs):
-        if not _is_admin():
+        if not _has_admin_access():
             return jsonify({"error": "Нужен вход администратора"}), 401
         return function(*args, **kwargs)
 
@@ -86,9 +113,13 @@ def _find_video(video_id: str) -> dict | None:
 
 
 def _public_item(item: dict) -> dict:
-    # Never expose server paths or internal job details to the browser.
+    # Never expose server paths or internal job details to the browser. Draft
+    # URLs carry a signed preview ticket because some hosted previews do not
+    # forward Flask cookies to <video> and <img> requests.
+    item_id = item.get("id")
+    preview = "" if item.get("published") else f"?preview={_preview_token(item_id)}"
     return {
-        "id": item.get("id"),
+        "id": item_id,
         "title": item.get("title"),
         "prompt": item.get("prompt"),
         "duration": item.get("duration"),
@@ -96,9 +127,9 @@ def _public_item(item: dict) -> dict:
         "published": bool(item.get("published")),
         "scene": item.get("scene"),
         "palette": item.get("palette"),
-        "video_url": f"/media/{item.get('id')}" if item.get("filename") else None,
-        "download_url": f"/download/{item.get('id')}",
-        "thumbnail_url": f"/thumbs/{item.get('id')}" if item.get("thumbnail") else None,
+        "video_url": f"/media/{item_id}{preview}" if item.get("filename") else None,
+        "download_url": f"/download/{item_id}{preview}",
+        "thumbnail_url": f"/thumbs/{item_id}{preview}" if item.get("thumbnail") else None,
     }
 
 
@@ -184,6 +215,7 @@ def login():
         return jsonify({
             "ok": True,
             "admin": True,
+            "admin_token": _admin_token(),
             "videos": [_public_item(item) for item in _visible_catalog()],
         })
     return jsonify({"ok": False, "error": "Неверный пароль"}), 401
@@ -259,7 +291,7 @@ def delete_video(video_id: str):
 
 def _catalog_file(video_id: str, field: str, directory: Path):
     item = _find_video(video_id)
-    if not item or (not item.get("published") and not _is_admin()):
+    if not item or (not item.get("published") and not (_has_admin_access() or _has_preview_access(video_id))):
         abort(404)
     filename = item.get(field)
     if not filename or Path(filename).name != filename:
@@ -271,7 +303,7 @@ def _catalog_file(video_id: str, field: str, directory: Path):
 def media(video_id: str):
     # The URL uses an id rather than accepting arbitrary filesystem paths.
     item = _find_video(video_id)
-    if not item or (not item.get("published") and not _is_admin()):
+    if not item or (not item.get("published") and not (_has_admin_access() or _has_preview_access(video_id))):
         abort(404)
     return send_from_directory(VIDEO_DIR, item["filename"], conditional=True)
 
@@ -279,7 +311,7 @@ def media(video_id: str):
 @app.get("/download/<video_id>")
 def download(video_id: str):
     item = _find_video(video_id)
-    if not item or (not item.get("published") and not _is_admin()):
+    if not item or (not item.get("published") and not (_has_admin_access() or _has_preview_access(video_id))):
         abort(404)
     return send_from_directory(VIDEO_DIR, item["filename"], as_attachment=True, download_name=f"{item.get('title', 'covalt-video')}.mp4", conditional=True)
 

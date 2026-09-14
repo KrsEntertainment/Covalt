@@ -1,5 +1,5 @@
 (() => {
-  const state = { admin: Boolean(window.COVALT && window.COVALT.admin), polling: null };
+  const state = { admin: Boolean(window.COVALT && window.COVALT.admin), adminToken: null, polling: null };
   const $ = (selector) => document.querySelector(selector);
   const form = $('#generateForm');
   const generateButton = $('#generateButton');
@@ -31,7 +31,9 @@
     toastTimer = setTimeout(() => toastNode.classList.remove('show'), 3600);
   };
   const api = async (url, options = {}) => {
-    const response = await fetch(url, { credentials: 'include', headers: { 'Content-Type': 'application/json', ...(options.headers || {}) }, ...options });
+    const headers = { 'Content-Type': 'application/json', ...(options.headers || {}) };
+    if (state.adminToken) headers['X-Covalt-Admin'] = state.adminToken;
+    const response = await fetch(url, { credentials: 'include', headers, ...options });
     const data = await response.json().catch(() => ({}));
     if (!response.ok) throw new Error(data.error || 'Что-то пошло не так');
     return data;
@@ -141,6 +143,7 @@
     try {
       const loginData = await api('/api/login', { method: 'POST', body: JSON.stringify({ password: $('#password').value }) });
       state.admin = true;
+      state.adminToken = loginData.admin_token || null;
       modal.hidden = true;
       $('#password').value = '';
       // The login response already contains the newest queue. Render it now;
@@ -150,7 +153,7 @@
       toast('Режим администратора включён.');
     } catch (error) { $('#loginError').textContent = error.message; }
   });
-  $('#logoutButton').addEventListener('click', async () => { try { await api('/api/logout', { method: 'POST' }); state.admin = false; updateAdminUi(); await refreshVideos(); toast('Вы вышли из режима администратора.'); } catch (error) { toast(error.message); } });
+  $('#logoutButton').addEventListener('click', async () => { try { await api('/api/logout', { method: 'POST' }); state.admin = false; state.adminToken = null; updateAdminUi(); await refreshVideos(); toast('Вы вышли из режима администратора.'); } catch (error) { toast(error.message); } });
 
   document.addEventListener('click', async (event) => {
     const button = event.target.closest('[data-action]');
