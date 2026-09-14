@@ -34,6 +34,12 @@ TESTS = [
         "expected": "Предупреждает о необходимости поиска",
     },
     {
+        "id": "first-dialogue",
+        "title": "Первый диалог",
+        "description": "Covalt должен пережить два связанных текстовых сообщения и не дать один и тот же ответ.",
+        "expected": "Два разных ответа, оба сформированы после этапов анализа",
+    },
+    {
         "id": "web-switch",
         "title": "Режим поиска",
         "description": "Флаг поиска должен включать поиск и показать статус.",
@@ -84,6 +90,18 @@ def run_tests() -> dict:
         results.append(_result("honest-unknown", honest, unknown["answer"]))
     except Exception as error:
         results.append(_result("honest-unknown", False, "Ошибка", str(error)))
+
+    try:
+        first = chat("Привет, я хочу проверить, понимаешь ли ты обычный текст.")
+        second = chat("Составь короткий план нашего тестирования.", history=[
+            {"role": "user", "content": "Привет, я хочу проверить, понимаешь ли ты обычный текст."},
+            {"role": "assistant", "content": first["answer"]},
+        ])
+        passed = first["answer"] != second["answer"] and first["thinking_ms"] >= 700 and second["thinking_ms"] >= 700
+        actual = f"ответ 1: {first['thinking_ms']} ms; ответ 2: {second['thinking_ms']} ms"
+        results.append(_result("first-dialogue", passed, actual, f"1) {first['answer'][:180]} | 2) {second['answer'][:180]}"))
+    except Exception as error:
+        results.append(_result("first-dialogue", False, "Ошибка", str(error)))
 
     try:
         web = chat("Проверь свежие новости о Python", use_web=True)

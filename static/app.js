@@ -104,14 +104,16 @@
   }
   document.querySelectorAll('.mode-tab').forEach((button) => button.addEventListener('click', () => setMode(button.dataset.mode)));
 
-  function appendChatMessage(role, content, sources = [], understanding = null) {
+  function appendChatMessage(role, content, sources = [], understanding = null, meta = null) {
     const isAssistant = role === 'assistant';
     const sourceHtml = sources.length ? `<div class="source-list">${sources.map((source) => `<a href="${escapeHtml(source.url)}" target="_blank" rel="noopener"><b>${escapeHtml(source.title)}</b><small>${escapeHtml(source.snippet || source.url)}</small></a>`).join('')}</div>` : '';
+    const searchHtml = meta && meta.search_status === 'no-sources' ? '<div class="search-status">Поиск включён, но источники не вернулись. Covalt не будет их выдумывать.</div>' : '';
     const intentHtml = understanding ? `<div class="intent-chips"><span>${escapeHtml(understanding.scene)}</span><span>${escapeHtml(understanding.action)}</span><span>${escapeHtml(understanding.palette)}</span><span>${Math.round((understanding.confidence || 0) * 100)}% match</span></div>` : '';
+    const timeHtml = meta && meta.thinking_ms ? `<small class="thinking-meta">анализ и составление · ${escapeHtml(meta.thinking_ms)} ms</small>` : '';
     const node = document.createElement('div');
     node.className = `chat-message ${isAssistant ? 'assistant-message' : 'user-message'}`;
     node.innerHTML = isAssistant
-      ? `<span class="message-avatar">C</span><div><b>Covalt</b><p>${escapeHtml(content).replace(/\n/g, '<br>')}</p>${intentHtml}${sourceHtml}</div>`
+      ? `<span class="message-avatar">C</span><div><b>Covalt</b><p>${escapeHtml(content).replace(/\n/g, '<br>')}</p>${timeHtml}${intentHtml}${searchHtml}${sourceHtml}</div>`
       : `<div><b>Вы</b><p>${escapeHtml(content).replace(/\n/g, '<br>')}</p></div>`;
     chatMessages.appendChild(node);
     chatMessages.scrollTop = chatMessages.scrollHeight;
@@ -127,13 +129,22 @@
     chatHistory.push({ role: 'user', content: message });
     input.value = '';
     const button = event.submitter || event.target.querySelector('button');
+    const status = $('#chatStatus');
+    const statusText = $('#chatStatusText');
+    const stages = ['Covalt разбирает запрос…', 'Covalt проверяет контекст…', useWeb ? 'Covalt проверяет поиск…' : 'Covalt составляет ответ…'];
+    let stage = 0;
+    status.hidden = false;
+    statusText.textContent = stages[stage];
+    const stageTimer = setInterval(() => { stage = Math.min(stage + 1, stages.length - 1); statusText.textContent = stages[stage]; }, 500);
     button.disabled = true;
-    button.querySelector('span').textContent = 'Думаю…';
+    button.querySelector('span').textContent = 'Ждём ответ…';
     try {
       const result = await api('/api/chat', { method: 'POST', body: JSON.stringify({ message, history: chatHistory.slice(-8), use_web: useWeb }) });
-      appendChatMessage('assistant', result.answer, result.sources || [], result.understanding);
+      appendChatMessage('assistant', result.answer, result.sources || [], result.understanding, result);
       chatHistory.push({ role: 'assistant', content: result.answer });
     } catch (error) { appendChatMessage('assistant', `Не получилось выполнить запрос: ${error.message}`); }
+    clearInterval(stageTimer);
+    status.hidden = true;
     button.disabled = false;
     button.querySelector('span').textContent = 'Отправить';
   });

@@ -8,8 +8,8 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="{{ url_for('static', filename='styles.css', v='covalt-text-2') }}">
-  <link rel="stylesheet" href="{{ url_for('static', filename='ai.css', v='covalt-text-2') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='styles.css', v='covalt-text-3') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='ai.css', v='covalt-text-3') }}">
 </head>
 <body>
   <div class="noise"></div>
@@ -106,6 +106,7 @@
           </div>
           <form class="chat-form" id="chatForm">
             <textarea id="chatInput" maxlength="4000" rows="2" placeholder="Спроси Covalt о чём-нибудь…" required></textarea>
+            <div class="chat-status" id="chatStatus" hidden><span class="spinner"></span><span id="chatStatusText">Covalt разбирает запрос…</span></div>
             <div class="chat-actions"><label class="search-toggle"><input id="chatWeb" type="checkbox"><span class="toggle-track"></span> Искать в интернете</label><button class="generate-button chat-send" type="submit"><span>Отправить</span><b>↗</b></button></div>
           </form>
         </div>
@@ -190,6 +191,6 @@
   </div>
   <div class="toast" id="toast" role="status"></div>
   <script>window.COVALT = {admin: {{ is_admin|tojson }}};</script>
-  <script src="{{ url_for('static', filename='app.js', v='covalt-text-2') }}"></script>
+  <script src="{{ url_for('static', filename='app.js', v='covalt-text-3') }}"></script>
 </body>
 </html>

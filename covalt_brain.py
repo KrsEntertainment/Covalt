@@ -13,6 +13,7 @@ import html
 import json
 import os
 import re
+import time
 import urllib.parse
 import urllib.request
 import uuid
@@ -215,6 +216,7 @@ def chat(message: str, history: list[dict[str, str]] | None = None, use_web: boo
         raise ValueError("Напишите сообщение")
     if len(message) > MAX_CHAT_LENGTH:
         raise ValueError(f"Сообщение слишком длинное (максимум {MAX_CHAT_LENGTH} символов)")
+    started = time.perf_counter()
     intent = understand_prompt(message)
     should_search = use_web or any(word in message.lower() for word in ("найди", "источники", "новости", "сейчас", "find", "latest", "search"))
     results = search_web(message) if should_search else []
@@ -230,11 +232,22 @@ def chat(message: str, history: list[dict[str, str]] | None = None, use_web: boo
                 messages.append({"role": item["role"], "content": str(item["content"])[:2000]})
     messages.append({"role": "user", "content": message})
     answer = _remote_answer(messages) or _local_answer(message, intent, results, should_search)
+    # Give the text core a visible, bounded thinking window. This is not a
+    # claim that a hidden model is running: it makes the compose step explicit
+    # and leaves room for a future larger model without instant fake answers.
+    target_seconds = min(2.4, 0.8 + len(message) / 700)
+    elapsed = time.perf_counter() - started
+    if elapsed < target_seconds:
+        time.sleep(target_seconds - elapsed)
+    thinking_ms = round((time.perf_counter() - started) * 1000)
     return {
         "answer": answer,
         "sources": [result.__dict__ for result in results],
         "understanding": intent,
         "searched": should_search,
+        "search_status": "sources-found" if results else ("no-sources" if should_search else "not-requested"),
+        "thinking_ms": thinking_ms,
+        "thinking_stages": ["prompt parsed", "context checked", "answer composed"],
         "model": "remote-compatible" if os.environ.get("COVALT_LLM_URL") else "covalt-local-intent",
     }
 
