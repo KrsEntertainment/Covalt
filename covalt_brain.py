@@ -166,11 +166,23 @@ def understand_prompt(prompt: str) -> dict[str, Any]:
 
 
 OLLAMA_URL = os.environ.get("COVALT_OLLAMA_URL", "http://127.0.0.1:11434/api/chat").strip()
-OLLAMA_MODEL = os.environ.get("COVALT_OLLAMA_MODEL", "qwen2.5:3b").strip()
+OLLAMA_MODEL = os.environ.get("COVALT_OLLAMA_MODEL", "").strip()
 
 
-def _ollama_request(messages: list[dict[str, str]], timeout: float = 30.0) -> str | None:
-    payload = {"model": OLLAMA_MODEL, "messages": messages, "stream": False}
+def _choose_ollama_model(models: list[str]) -> str:
+    """Prefer an explicitly configured model, otherwise detect DeepSeek/Qwen."""
+    if OLLAMA_MODEL:
+        return OLLAMA_MODEL
+    preferred = ("deepseek-r1", "deepseek-v3", "qwen2.5", "qwen3", "llama3.2")
+    for family in preferred:
+        for name in models:
+            if name == family or name.startswith(family + ":"):
+                return name
+    return models[0] if models else "deepseek-r1:7b"
+
+
+def _ollama_request(messages: list[dict[str, str]], model: str, timeout: float = 30.0) -> str | None:
+    payload = {"model": model, "messages": messages, "stream": False}
     request = urllib.request.Request(
         OLLAMA_URL,
         data=json.dumps(payload).encode("utf-8"),
@@ -194,30 +206,36 @@ def ollama_status() -> dict[str, Any]:
         with urllib.request.urlopen(request, timeout=1.5) as response:
             result = json.loads(response.read().decode("utf-8"))
         models = [item.get("name", "") for item in result.get("models", [])]
-        loaded = any(name == OLLAMA_MODEL or name.startswith(OLLAMA_MODEL + ":") for name in models)
-        return {"provider": "ollama", "available": True, "model": OLLAMA_MODEL, "model_found": loaded, "models": models[:20]}
+        selected = _choose_ollama_model(models)
+        loaded = selected in models or any(name.startswith(selected + ":") for name in models)
+        return {"provider": "ollama", "available": True, "model": selected, "model_found": loaded, "models": models[:20]}
     except (OSError, KeyError, TypeError, ValueError, json.JSONDecodeError):
-        return {"provider": "ollama", "available": False, "model": OLLAMA_MODEL, "model_found": False, "models": []}
+        return {"provider": "ollama", "available": False, "model": OLLAMA_MODEL or "deepseek-r1:7b", "model_found": False, "models": []}
 
 
 def _ollama_answer(messages: list[dict[str, str]], message: str, use_web: bool) -> tuple[str | None, list[SearchResult], str]:
     """Ask Ollama, with a simple explicit SEARCH tool round-trip."""
     wants_search = use_web or any(word in message.lower() for word in ("найди", "источники", "новости", "сейчас", "find", "latest", "search"))
+    status = ollama_status()
+    if not status["available"] or not status["model_found"]:
+        return None, [], "ollama-unavailable"
+    model = status["model"]
     tool_instruction = (
         " If current facts or web sources are needed, answer only TOOL_SEARCH: followed by a short query. "
         "Otherwise answer the user directly."
     )
     first_messages = [dict(item) for item in messages]
     first_messages[0] = {**first_messages[0], "content": first_messages[0]["content"] + tool_instruction}
-    draft = _ollama_request(first_messages)
+    draft = _ollama_request(first_messages, model)
     if not draft:
         return None, [], "ollama-unavailable"
     tool_query = message
-    if draft.upper().startswith("TOOL_SEARCH:"):
-        tool_query = draft.split(":", 1)[1].strip() or message
-    results = search_web(tool_query) if wants_search or draft.upper().startswith("TOOL_SEARCH:") else []
-    if not (wants_search or draft.upper().startswith("TOOL_SEARCH:")):
-        return draft, [], "ollama"
+    tool_match = re.search(r"TOOL_SEARCH\s*:\s*(.+)", draft, flags=re.IGNORECASE | re.DOTALL)
+    if tool_match:
+        tool_query = tool_match.group(1).strip().split("\n", 1)[0] or message
+    results = search_web(tool_query) if wants_search or tool_match else []
+    if not (wants_search or tool_match):
+        return re.sub(r"<think>.*?</think>", "", draft, flags=re.IGNORECASE | re.DOTALL).strip(), [], "ollama"
     evidence = "\n".join(f"- {item.title}: {item.snippet} ({item.url})" for item in results)
     if not evidence:
         evidence = "NO SOURCES RECEIVED. Say clearly that the server search was unavailable; do not invent sources."
@@ -225,8 +243,9 @@ def _ollama_answer(messages: list[dict[str, str]], message: str, use_web: bool) 
         {"role": "assistant", "content": draft},
         {"role": "user", "content": f"Search tool output for {tool_query}:\n{evidence}\nNow answer the original user in their language and be explicit about source availability."},
     ]
-    answer = _ollama_request(final_messages)
-    return answer or draft, results, "ollama-tool-search"
+    answer = _ollama_request(final_messages, model)
+    cleaned = re.sub(r"<think>.*?</think>", "", answer or draft, flags=re.IGNORECASE | re.DOTALL).strip()
+    return cleaned, results, "ollama-tool-search"
 
 
 def _remote_answer(messages: list[dict[str, str]]) -> str | None:

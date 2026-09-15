@@ -69,8 +69,10 @@ python3 -m venv .venv
 
 ```bash
 ollama serve
-ollama pull qwen2.5:3b
-export COVALT_OLLAMA_MODEL="qwen2.5:3b"
+ollama pull deepseek-r1:7b
+# Если тег другой, укажите его явно; без переменной Covalt сам ищет DeepSeek,
+# затем Qwen среди установленных моделей.
+export COVALT_OLLAMA_MODEL="deepseek-r1:7b"
 .venv/bin/python app.py
 ```
 
