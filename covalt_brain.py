@@ -197,8 +197,8 @@ def _local_answer(message: str, intent: dict[str, Any], results: list[SearchResu
     if any(word in lower for word in ("объясни", "что такое", "расскажи про", "explain", "what is")):
         topic = re.sub(r"^(объясни|расскажи про|что такое|explain|what is)\s*", "", message, flags=re.IGNORECASE).strip(" ?") or "эту тему"
         return f"Я понял, что нужно объяснить тему «{topic}». В локальном текстовом режиме у меня нет надёжной базы фактов, поэтому я не стану придумывать объяснение. Включи «Искать в интернете» — тогда я сначала соберу источники."
-    if any(word in lower for word in ("составь план", "сделай план", "план действий", "make a plan")):
-        topic = re.sub(r"(составь план|сделай план|план действий|make a plan)", "", message, flags=re.IGNORECASE).strip(" :") or "задачи"
+    if re.search(r"(составь|сделай)\s+.{0,40}\bплан\b|план действий|make a plan", lower):
+        topic = re.sub(r"(составь|сделай)(?:\s+короткий|\s+подробный)?\s+план|план действий|make a plan", "", message, flags=re.IGNORECASE).strip(" :,.!?…") or "задачи"
         return f"Для темы «{topic}» предлагаю начать так:\n1. Уточнить цель и критерий готовности.\n2. Разбить работу на маленькие шаги.\n3. Проверить результат на отдельном тесте.\n4. Зафиксировать, что нужно улучшить."
     if any(word in lower for word in ("перепиши", "улучши текст", "исправь", "rewrite", "edit")):
         source = message.split(":", 1)[1].strip() if ":" in message else message

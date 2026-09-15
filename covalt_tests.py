@@ -97,7 +97,7 @@ def run_tests() -> dict:
             {"role": "user", "content": "Привет, я хочу проверить, понимаешь ли ты обычный текст."},
             {"role": "assistant", "content": first["answer"]},
         ])
-        passed = first["answer"] != second["answer"] and first["thinking_ms"] >= 700 and second["thinking_ms"] >= 700
+        passed = first["answer"] != second["answer"] and "1." in second["answer"] and first["thinking_ms"] >= 700 and second["thinking_ms"] >= 700
         actual = f"ответ 1: {first['thinking_ms']} ms; ответ 2: {second['thinking_ms']} ms"
         results.append(_result("first-dialogue", passed, actual, f"1) {first['answer'][:180]} | 2) {second['answer'][:180]}"))
     except Exception as error:
