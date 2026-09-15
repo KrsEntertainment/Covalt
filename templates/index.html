@@ -20,7 +20,7 @@
     </a>
     <div class="topbar-right">
       <a class="tests-link" href="/tests">НАШИ ТЕСТЫ ↗</a>
-      <span class="system-pill"><span class="status-dot"></span> LOCAL NEURAL ENGINE</span>
+      <span class="system-pill"><span class="status-dot"></span> <span id="providerStatus">TEXT MODEL / CHECKING</span></span>
       <button class="admin-button {% if is_admin %}active{% endif %}" id="adminButton" type="button">
         <span class="lock-icon">{% if is_admin %}✓{% else %}⌑{% endif %}</span>
         <span id="adminLabel">{% if is_admin %}Администратор{% else %}Вход админа{% endif %}</span>
@@ -113,7 +113,7 @@
         </div>
         <aside class="memory-card">
           <div class="card-topline"><span class="led amber"></span><span>IDENTITY CORE</span></div>
-          <div class="identity-orb">C</div><h3>Covalt</h3><p>Создатель: <strong>RYNico corp.</strong></p><p class="memory-copy">Память текущего диалога хранится в этом браузере. Covalt видит предыдущие сообщения и может продолжать тему.</p><div class="memory-status" id="memoryStatus">Память: 0 сообщений</div><button class="memory-clear" id="clearMemory" type="button">Очистить память</button>
+          <div class="identity-orb">C</div><h3>Covalt</h3><p>Создатель: <strong>RYNico corp.</strong></p><p class="memory-copy">Память текущего диалога хранится в этом браузере. Covalt видит предыдущие сообщения и может продолжать тему.</p><div class="memory-status" id="memoryStatus">Память: 0 сообщений</div><div class="provider-status-card" id="providerCard">Модель: проверяем Ollama…</div><button class="memory-clear" id="clearMemory" type="button">Очистить память</button>
           <a class="tests-callout" href="/tests"><b>ПЕРВЫЙ ТЕСТ</b><span>Открыть «Наши тесты» ↗</span></a>
           <div class="engine-meta"><span>LOCAL CONTEXT</span><span>WEB OPTIONAL</span></div>
         </aside>

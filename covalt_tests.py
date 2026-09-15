@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Callable
 
-from covalt_brain import chat, understand_prompt
+from covalt_brain import chat, ollama_status, understand_prompt
 
 
 TESTS = [
@@ -38,6 +38,12 @@ TESTS = [
         "title": "Первый диалог",
         "description": "Covalt должен пережить два связанных текстовых сообщения и не дать один и тот же ответ.",
         "expected": "Два разных ответа, оба сформированы после этапов анализа",
+    },
+    {
+        "id": "model-provider",
+        "title": "Настоящая модель подключена",
+        "description": "Проверяем, что Ollama доступна и модель действительно загружена.",
+        "expected": "available = true и model_found = true",
     },
     {
         "id": "web-switch",
@@ -97,11 +103,21 @@ def run_tests() -> dict:
             {"role": "user", "content": "Привет, я хочу проверить, понимаешь ли ты обычный текст."},
             {"role": "assistant", "content": first["answer"]},
         ])
-        passed = first["answer"] != second["answer"] and "1." in second["answer"] and first["thinking_ms"] >= 700 and second["thinking_ms"] >= 700
-        actual = f"ответ 1: {first['thinking_ms']} ms; ответ 2: {second['thinking_ms']} ms"
-        results.append(_result("first-dialogue", passed, actual, f"1) {first['answer'][:180]} | 2) {second['answer'][:180]}"))
+        real_model = first["model"].startswith(("ollama", "openai-compatible"))
+        passed = real_model and first["answer"] != second["answer"] and "1." in second["answer"] and first["thinking_ms"] >= 700 and second["thinking_ms"] >= 700
+        actual = f"model: {first['model']}; ответ 1: {first['thinking_ms']} ms; ответ 2: {second['thinking_ms']} ms"
+        details = f"1) {first['answer'][:160]} | 2) {second['answer'][:160]}"
+        if not real_model: details = "Настоящая модель не подключена; проверка диалога остановлена на fallback. " + details
+        results.append(_result("first-dialogue", passed, actual, details))
     except Exception as error:
         results.append(_result("first-dialogue", False, "Ошибка", str(error)))
+
+    try:
+        status = ollama_status()
+        actual = f"available = {status['available']}; model_found = {status['model_found']}; model = {status['model']}"
+        results.append(_result("model-provider", status["available"] and status["model_found"], actual, "Если CHECK — текст пока отвечает прозрачным fallback, а не настоящей LLM."))
+    except Exception as error:
+        results.append(_result("model-provider", False, "Ошибка", str(error)))
 
     try:
         web = chat("Проверь свежие новости о Python", use_web=True)

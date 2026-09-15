@@ -16,7 +16,7 @@ from pathlib import Path
 
 from flask import Flask, abort, jsonify, render_template, request, send_from_directory, session
 
-from covalt_brain import COVALT_CREATOR, COVALT_NAME, chat as covalt_chat, generate_image as covalt_generate_image
+from covalt_brain import COVALT_CREATOR, COVALT_NAME, chat as covalt_chat, generate_image as covalt_generate_image, ollama_status
 from covalt_tests import run_tests
 from video_generator import MAX_SECONDS, encode_video
 
@@ -322,6 +322,11 @@ def delete_news(news_id: str):
             return jsonify({"error": "Новость не найдена"}), 404
         _write_news([entry for entry in items if entry.get("id") != news_id])
     return jsonify({"ok": True})
+
+
+@app.get("/api/model/status")
+def model_status_api():
+    return jsonify(ollama_status())
 
 
 @app.post("/api/chat")

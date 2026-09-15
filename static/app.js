@@ -78,6 +78,19 @@
     }
   }
 
+  async function loadModelStatus() {
+    try {
+      const status = await api('/api/model/status');
+      const ready = status.available && status.model_found;
+      $('#providerStatus').textContent = ready ? `OLLAMA / ${status.model}` : 'TEXT MODEL / NOT CONNECTED';
+      $('#providerCard').textContent = ready ? `Модель: ${status.model} подключена` : 'Модель: Ollama не подключена — сейчас работает честный fallback';
+      $('#providerCard').classList.toggle('provider-ready', ready);
+    } catch {
+      $('#providerStatus').textContent = 'TEXT MODEL / CHECK';
+      $('#providerCard').textContent = 'Модель: статус недоступен';
+    }
+  }
+
   async function refreshVideos() {
     try {
       const data = await api('/api/videos');
@@ -121,10 +134,11 @@
     const searchHtml = meta && meta.search_status === 'server-network-unavailable' ? `<div class="search-status">Поиск включён, но сервер не получил источники. Covalt не будет их выдумывать.</div>${browserSearchHtml}` : '';
     const intentHtml = understanding ? `<div class="intent-chips"><span>${escapeHtml(understanding.scene)}</span><span>${escapeHtml(understanding.action)}</span><span>${escapeHtml(understanding.palette)}</span><span>${Math.round((understanding.confidence || 0) * 100)}% match</span></div>` : '';
     const timeHtml = meta && meta.thinking_ms ? `<small class="thinking-meta">анализ и составление · ${escapeHtml(meta.thinking_ms)} ms</small>` : '';
+    const providerHtml = meta && meta.provider_error ? `<div class="provider-warning">⚠ ${escapeHtml(meta.provider_error)}</div>` : '';
     const node = document.createElement('div');
     node.className = `chat-message ${isAssistant ? 'assistant-message' : 'user-message'}`;
     node.innerHTML = isAssistant
-      ? `<span class="message-avatar">C</span><div><b>Covalt</b><p>${escapeHtml(content).replace(/\n/g, '<br>')}</p>${timeHtml}${intentHtml}${searchHtml}${sourceHtml}</div>`
+      ? `<span class="message-avatar">C</span><div><b>Covalt</b><p>${escapeHtml(content).replace(/\n/g, '<br>')}</p>${timeHtml}${providerHtml}${intentHtml}${searchHtml}${sourceHtml}</div>`
       : `<div><b>Вы</b><p>${escapeHtml(content).replace(/\n/g, '<br>')}</p></div>`;
     chatMessages.appendChild(node);
     chatMessages.scrollTop = chatMessages.scrollHeight;
@@ -338,4 +352,5 @@
   updateAdminUi();
   refreshVideos();
   loadNews();
+  loadModelStatus();
 })();

@@ -165,6 +165,70 @@ def understand_prompt(prompt: str) -> dict[str, Any]:
     }
 
 
+OLLAMA_URL = os.environ.get("COVALT_OLLAMA_URL", "http://127.0.0.1:11434/api/chat").strip()
+OLLAMA_MODEL = os.environ.get("COVALT_OLLAMA_MODEL", "qwen2.5:3b").strip()
+
+
+def _ollama_request(messages: list[dict[str, str]], timeout: float = 30.0) -> str | None:
+    payload = {"model": OLLAMA_MODEL, "messages": messages, "stream": False}
+    request = urllib.request.Request(
+        OLLAMA_URL,
+        data=json.dumps(payload).encode("utf-8"),
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=timeout) as response:
+            result = json.loads(response.read().decode("utf-8"))
+        content = result.get("message", {}).get("content")
+        return str(content).strip() if content else None
+    except (OSError, KeyError, TypeError, ValueError, json.JSONDecodeError):
+        return None
+
+
+def ollama_status() -> dict[str, Any]:
+    """Return provider state without hiding that a real model is absent."""
+    tags_url = OLLAMA_URL.rsplit("/api/chat", 1)[0] + "/api/tags"
+    request = urllib.request.Request(tags_url, headers={"User-Agent": "Covalt/1.0"})
+    try:
+        with urllib.request.urlopen(request, timeout=1.5) as response:
+            result = json.loads(response.read().decode("utf-8"))
+        models = [item.get("name", "") for item in result.get("models", [])]
+        loaded = any(name == OLLAMA_MODEL or name.startswith(OLLAMA_MODEL + ":") for name in models)
+        return {"provider": "ollama", "available": True, "model": OLLAMA_MODEL, "model_found": loaded, "models": models[:20]}
+    except (OSError, KeyError, TypeError, ValueError, json.JSONDecodeError):
+        return {"provider": "ollama", "available": False, "model": OLLAMA_MODEL, "model_found": False, "models": []}
+
+
+def _ollama_answer(messages: list[dict[str, str]], message: str, use_web: bool) -> tuple[str | None, list[SearchResult], str]:
+    """Ask Ollama, with a simple explicit SEARCH tool round-trip."""
+    wants_search = use_web or any(word in message.lower() for word in ("найди", "источники", "новости", "сейчас", "find", "latest", "search"))
+    tool_instruction = (
+        " If current facts or web sources are needed, answer only TOOL_SEARCH: followed by a short query. "
+        "Otherwise answer the user directly."
+    )
+    first_messages = [dict(item) for item in messages]
+    first_messages[0] = {**first_messages[0], "content": first_messages[0]["content"] + tool_instruction}
+    draft = _ollama_request(first_messages)
+    if not draft:
+        return None, [], "ollama-unavailable"
+    tool_query = message
+    if draft.upper().startswith("TOOL_SEARCH:"):
+        tool_query = draft.split(":", 1)[1].strip() or message
+    results = search_web(tool_query) if wants_search or draft.upper().startswith("TOOL_SEARCH:") else []
+    if not (wants_search or draft.upper().startswith("TOOL_SEARCH:")):
+        return draft, [], "ollama"
+    evidence = "\n".join(f"- {item.title}: {item.snippet} ({item.url})" for item in results)
+    if not evidence:
+        evidence = "NO SOURCES RECEIVED. Say clearly that the server search was unavailable; do not invent sources."
+    final_messages = first_messages + [
+        {"role": "assistant", "content": draft},
+        {"role": "user", "content": f"Search tool output for {tool_query}:\n{evidence}\nNow answer the original user in their language and be explicit about source availability."},
+    ]
+    answer = _ollama_request(final_messages)
+    return answer or draft, results, "ollama-tool-search"
+
+
 def _remote_answer(messages: list[dict[str, str]]) -> str | None:
     """Call an optional OpenAI-compatible endpoint when configured."""
     endpoint = os.environ.get("COVALT_LLM_URL", "").strip()
@@ -232,11 +296,10 @@ def chat(message: str, history: list[dict[str, str]] | None = None, use_web: boo
     started = time.perf_counter()
     intent = understand_prompt(message)
     should_search = use_web or any(word in message.lower() for word in ("найди", "источники", "новости", "сейчас", "find", "latest", "search"))
-    results = search_web(message) if should_search else []
+    results: list[SearchResult] = []
     system = (
         f"You are {COVALT_NAME}, a concise assistant created by {COVALT_CREATOR}. "
-        "Be transparent: do not claim to have a large pretrained model when using local fallback. "
-        "Answer in the user's language."
+        "Answer in the user's language. Do not invent facts or sources."
     )
     messages = [{"role": "system", "content": system}]
     if history:
@@ -244,7 +307,28 @@ def chat(message: str, history: list[dict[str, str]] | None = None, use_web: boo
             if item.get("role") in {"user", "assistant"} and item.get("content"):
                 messages.append({"role": item["role"], "content": str(item["content"])[:2000]})
     messages.append({"role": "user", "content": message})
-    answer = _remote_answer(messages) or _local_answer(message, intent, results, should_search, history)
+    answer = None
+    model_name = "local-intent-fallback"
+    provider_error = ""
+    if os.environ.get("COVALT_LLM_URL"):
+        answer = _remote_answer(messages)
+        if answer:
+            model_name = "openai-compatible"
+        else:
+            provider_error = "configured endpoint unavailable"
+    if not answer:
+        answer, tool_results, ollama_model = _ollama_answer(messages, message, use_web)
+        if answer:
+            results = tool_results
+            model_name = ollama_model
+        else:
+            provider_error = "ollama unavailable; using transparent fallback"
+    if should_search and not results:
+        # The fallback still attempts the search once, so a server with
+        # outbound internet starts working without changing the chat code.
+        results = search_web(message)
+    if not answer:
+        answer = _local_answer(message, intent, results, should_search, history)
     # Give the text core a visible, bounded thinking window. This is not a
     # claim that a hidden model is running: it makes the compose step explicit
     # and leaves room for a future larger model without instant fake answers.
@@ -263,7 +347,8 @@ def chat(message: str, history: list[dict[str, str]] | None = None, use_web: boo
         "thinking_ms": thinking_ms,
         "thinking_stages": ["prompt parsed", "context checked", "answer composed"],
         "memory_messages": len(history or []),
-        "model": "remote-compatible" if os.environ.get("COVALT_LLM_URL") else "covalt-local-intent",
+        "model": model_name,
+        "provider_error": provider_error,
     }
 
 
