@@ -8,8 +8,8 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="{{ url_for('static', filename='styles.css', v='covalt-text-3') }}">
-  <link rel="stylesheet" href="{{ url_for('static', filename='ai.css', v='covalt-text-3') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='styles.css', v='covalt-text-4') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='ai.css', v='covalt-text-4') }}">
 </head>
 <body>
   <div class="noise"></div>
@@ -39,6 +39,7 @@
           <span><b>WEB</b> поиск по запросу</span>
           <span><b>TESTS</b> честная проверка</span>
         </div>
+        <a class="hero-tests-link" href="/tests">Открыть страницу «Наши тесты» <b>↗</b></a>
       </div>
       <div class="hero-orbit" aria-hidden="true">
         <div class="orbit orbit-one"></div><div class="orbit orbit-two"></div>
@@ -112,7 +113,8 @@
         </div>
         <aside class="memory-card">
           <div class="card-topline"><span class="led amber"></span><span>IDENTITY CORE</span></div>
-          <div class="identity-orb">C</div><h3>Covalt</h3><p>Создатель: <strong>RYNico corp.</strong></p><p class="memory-copy">Встроенная память знает имя, создателя и умеет выделять сцену, действие, палитру, настроение и камеру из запроса.</p>
+          <div class="identity-orb">C</div><h3>Covalt</h3><p>Создатель: <strong>RYNico corp.</strong></p><p class="memory-copy">Память текущего диалога хранится в этом браузере. Covalt видит предыдущие сообщения и может продолжать тему.</p><div class="memory-status" id="memoryStatus">Память: 0 сообщений</div><button class="memory-clear" id="clearMemory" type="button">Очистить память</button>
+          <a class="tests-callout" href="/tests"><b>ПЕРВЫЙ ТЕСТ</b><span>Открыть «Наши тесты» ↗</span></a>
           <div class="engine-meta"><span>LOCAL CONTEXT</span><span>WEB OPTIONAL</span></div>
         </aside>
       </div>
@@ -191,6 +193,6 @@
   </div>
   <div class="toast" id="toast" role="status"></div>
   <script>window.COVALT = {admin: {{ is_admin|tojson }}};</script>
-  <script src="{{ url_for('static', filename='app.js', v='covalt-text-3') }}"></script>
+  <script src="{{ url_for('static', filename='app.js', v='covalt-text-4') }}"></script>
 </body>
 </html>

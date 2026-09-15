@@ -13,7 +13,9 @@
   const videoGrid = $('#videoGrid');
   const toastNode = $('#toast');
   const chatMessages = $('#chatMessages');
-  const chatHistory = [];
+  const MEMORY_KEY = 'covalt_text_memory_v1';
+  let chatHistory = [];
+  try { chatHistory = JSON.parse(localStorage.getItem(MEMORY_KEY) || '[]').filter((item) => item.role && item.content).slice(-20); } catch { chatHistory = []; }
 
   const escapeHtml = (value) => String(value ?? '').replace(/[&<>'"]/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' }[char]));
   const formatDuration = (seconds) => {
@@ -25,6 +27,14 @@
     try { return new Intl.DateTimeFormat('ru-RU', { day: '2-digit', month: 'short', year: 'numeric' }).format(new Date(value)); }
     catch { return 'сегодня'; }
   };
+  function saveMemory() {
+    try { localStorage.setItem(MEMORY_KEY, JSON.stringify(chatHistory.slice(-20))); } catch { /* storage can be disabled */ }
+    $('#memoryStatus').textContent = `Память: ${chatHistory.length} сообщений`;
+  }
+  function restoreMemory() {
+    chatHistory.forEach((item) => appendChatMessage(item.role, item.content));
+    saveMemory();
+  }
   let toastTimer;
   const toast = (message) => {
     toastNode.textContent = message;
@@ -107,7 +117,8 @@
   function appendChatMessage(role, content, sources = [], understanding = null, meta = null) {
     const isAssistant = role === 'assistant';
     const sourceHtml = sources.length ? `<div class="source-list">${sources.map((source) => `<a href="${escapeHtml(source.url)}" target="_blank" rel="noopener"><b>${escapeHtml(source.title)}</b><small>${escapeHtml(source.snippet || source.url)}</small></a>`).join('')}</div>` : '';
-    const searchHtml = meta && meta.search_status === 'no-sources' ? '<div class="search-status">Поиск включён, но источники не вернулись. Covalt не будет их выдумывать.</div>' : '';
+    const browserSearchHtml = meta && meta.search_links && meta.search_links.length ? `<div class="browser-search-links"><span>Сервер не получил ответ. Открыть запрос в браузере:</span>${meta.search_links.map((link) => `<a href="${escapeHtml(link.url)}" target="_blank" rel="noopener">${escapeHtml(link.title)} ↗</a>`).join('')}</div>` : '';
+    const searchHtml = meta && meta.search_status === 'server-network-unavailable' ? `<div class="search-status">Поиск включён, но сервер не получил источники. Covalt не будет их выдумывать.</div>${browserSearchHtml}` : '';
     const intentHtml = understanding ? `<div class="intent-chips"><span>${escapeHtml(understanding.scene)}</span><span>${escapeHtml(understanding.action)}</span><span>${escapeHtml(understanding.palette)}</span><span>${Math.round((understanding.confidence || 0) * 100)}% match</span></div>` : '';
     const timeHtml = meta && meta.thinking_ms ? `<small class="thinking-meta">анализ и составление · ${escapeHtml(meta.thinking_ms)} ms</small>` : '';
     const node = document.createElement('div');
@@ -127,6 +138,7 @@
     const useWeb = $('#chatWeb').checked;
     appendChatMessage('user', message);
     chatHistory.push({ role: 'user', content: message });
+    saveMemory();
     input.value = '';
     const button = event.submitter || event.target.querySelector('button');
     const status = $('#chatStatus');
@@ -135,15 +147,23 @@
     let stage = 0;
     status.hidden = false;
     statusText.textContent = stages[stage];
-    const stageTimer = setInterval(() => { stage = Math.min(stage + 1, stages.length - 1); statusText.textContent = stages[stage]; }, 500);
+    const thinkingNode = document.createElement('div');
+    thinkingNode.className = 'chat-thinking';
+    thinkingNode.innerHTML = '<span class="spinner"></span><span></span>';
+    thinkingNode.querySelector('span:last-child').textContent = stages[stage];
+    chatMessages.appendChild(thinkingNode);
+    chatMessages.scrollTop = chatMessages.scrollHeight;
+    const stageTimer = setInterval(() => { stage = Math.min(stage + 1, stages.length - 1); statusText.textContent = stages[stage]; thinkingNode.querySelector('span:last-child').textContent = stages[stage]; }, 500);
     button.disabled = true;
     button.querySelector('span').textContent = 'Ждём ответ…';
     try {
       const result = await api('/api/chat', { method: 'POST', body: JSON.stringify({ message, history: chatHistory.slice(-8), use_web: useWeb }) });
       appendChatMessage('assistant', result.answer, result.sources || [], result.understanding, result);
       chatHistory.push({ role: 'assistant', content: result.answer });
+      saveMemory();
     } catch (error) { appendChatMessage('assistant', `Не получилось выполнить запрос: ${error.message}`); }
     clearInterval(stageTimer);
+    thinkingNode.remove();
     status.hidden = true;
     button.disabled = false;
     button.querySelector('span').textContent = 'Отправить';
@@ -306,6 +326,14 @@
     } catch (error) { button.disabled = false; toast(error.message); }
   });
 
+  $('#clearMemory').addEventListener('click', () => {
+    chatHistory = [];
+    try { localStorage.removeItem(MEMORY_KEY); } catch { /* storage can be disabled */ }
+    $('#chatMessages').querySelectorAll('.user-message, .assistant-message:not(:first-child)').forEach((node) => node.remove());
+    saveMemory();
+    toast('Память текущего диалога очищена.');
+  });
+  restoreMemory();
   setMode('chat');
   updateAdminUi();
   refreshVideos();

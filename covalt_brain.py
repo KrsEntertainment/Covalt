@@ -89,6 +89,16 @@ class _DuckParser(HTMLParser):
             self._current["snippet"] += data
 
 
+def browser_search_links(query: str) -> list[dict[str, str]]:
+    """Fallback links that the user's browser can open when the server has no network."""
+    encoded = urllib.parse.quote_plus(re.sub(r"\s+", " ", query).strip()[:400])
+    return [
+        {"title": "Открыть Google Search", "url": f"https://www.google.com/search?q={encoded}"},
+        {"title": "Открыть DuckDuckGo", "url": f"https://duckduckgo.com/?q={encoded}"},
+        {"title": "Открыть Yandex", "url": f"https://yandex.ru/search/?text={encoded}"},
+    ]
+
+
 def search_web(query: str, limit: int = 5) -> list[SearchResult]:
     """Search the public web without an API key.
 
@@ -178,8 +188,9 @@ def _remote_answer(messages: list[dict[str, str]]) -> str | None:
         return None
 
 
-def _local_answer(message: str, intent: dict[str, Any], results: list[SearchResult], searched: bool = False) -> str:
+def _local_answer(message: str, intent: dict[str, Any], results: list[SearchResult], searched: bool = False, history: list[dict[str, str]] | None = None) -> str:
     lower = message.lower()
+    previous_user = next((item.get("content", "") for item in reversed(history or []) if item.get("role") == "user" and item.get("content") != message), "")
     if any(word in lower for word in ("кто ты", "твоё имя", "твое имя", "как тебя зовут", "who are you", "your name")):
         return f"Я {COVALT_NAME} — локальный AI-движок, созданный компанией {COVALT_CREATOR} Могу вести текстовый диалог, уточнять идеи и честно отмечать, где мне нужен поиск."
     if any(word in lower for word in ("создатель", "кто тебя создал", "creator", "made you")):
@@ -190,10 +201,12 @@ def _local_answer(message: str, intent: dict[str, Any], results: list[SearchResu
         return "Привет. Я Covalt. Давай проверим именно текст: задай вопрос, попроси план, объяснение или редактуру. Если нужны свежие факты — включи поиск."
     if any(word in lower for word in ("спасибо", "благодарю", "thanks")):
         return "Пожалуйста. Если мой ответ неточный, напиши, что именно нужно исправить — это тоже тест."
+    if previous_user and any(word in lower for word in ("подробнее", "продолжи", "а теперь", "как я сказал", "дальше")):
+        return f"Я помню предыдущую тему: «{previous_user[:180]}». Продолжаю её, а не начинаю новый разговор. Уточни, какую часть раскрыть дальше."
     if results:
         return f"Я нашёл {len(results)} релевантных источника по запросу. Ниже оставил краткие выдержки и ссылки — проверьте дату публикации перед важными решениями."
     if searched:
-        return "Я включил поиск, но не получил источников. Возможно, сеть недоступна или поисковик временно не ответил. Я не буду выдумывать результат."
+        return "Я включил поиск на сервере, но сеть не вернула источники. Я не буду выдумывать результат — ниже можно открыть тот же запрос напрямую в браузере."
     if any(word in lower for word in ("объясни", "что такое", "расскажи про", "explain", "what is")):
         topic = re.sub(r"^(объясни|расскажи про|что такое|explain|what is)\s*", "", message, flags=re.IGNORECASE).strip(" ?") or "эту тему"
         return f"Я понял, что нужно объяснить тему «{topic}». В локальном текстовом режиме у меня нет надёжной базы фактов, поэтому я не стану придумывать объяснение. Включи «Искать в интернете» — тогда я сначала соберу источники."
@@ -231,7 +244,7 @@ def chat(message: str, history: list[dict[str, str]] | None = None, use_web: boo
             if item.get("role") in {"user", "assistant"} and item.get("content"):
                 messages.append({"role": item["role"], "content": str(item["content"])[:2000]})
     messages.append({"role": "user", "content": message})
-    answer = _remote_answer(messages) or _local_answer(message, intent, results, should_search)
+    answer = _remote_answer(messages) or _local_answer(message, intent, results, should_search, history)
     # Give the text core a visible, bounded thinking window. This is not a
     # claim that a hidden model is running: it makes the compose step explicit
     # and leaves room for a future larger model without instant fake answers.
@@ -245,9 +258,11 @@ def chat(message: str, history: list[dict[str, str]] | None = None, use_web: boo
         "sources": [result.__dict__ for result in results],
         "understanding": intent,
         "searched": should_search,
-        "search_status": "sources-found" if results else ("no-sources" if should_search else "not-requested"),
+        "search_status": "sources-found" if results else ("server-network-unavailable" if should_search else "not-requested"),
+        "search_links": browser_search_links(message) if should_search and not results else [],
         "thinking_ms": thinking_ms,
         "thinking_stages": ["prompt parsed", "context checked", "answer composed"],
+        "memory_messages": len(history or []),
         "model": "remote-compatible" if os.environ.get("COVALT_LLM_URL") else "covalt-local-intent",
     }
 
